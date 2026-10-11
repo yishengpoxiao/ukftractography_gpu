@@ -1,0 +1,88 @@
+# UKFTractography GPU
+
+CUDA acceleration for unscented Kalman filter diffusion MRI tractography, with a command-line backend and a 3D Slicer extension.
+
+This is a modified version of [pnlbwh/ukftractography](https://github.com/pnlbwh/ukftractography), based on upstream commit `2d2b661`. The original authors' contributions, source notices, and [license](LICENSE.txt) are retained.
+
+## Features and current status
+
+- GPU filtering, constraints, tracking, and recording for 12 experimental models: Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F.
+- FP64 and mixed precision. `--gpuPrecision fp32` uses FP32 for selected Simple-model signal calculations while sensitive calculations remain FP64; other models retain FP64.
+- Tracking kernel and record-transfer optimizations, including compact downloads and reuse of intermediate products.
+- A Slicer interface for model selection, tracking parameters, asynchronous execution, cancellation, logs, and fiber display.
+- Linux integration tested with Slicer 5.6.2 and 5.12.4. Windows 11 / Slicer 5.6.2 build and packaging scripts are provided, but native Windows compilation and execution remain unverified.
+
+GPU implementation does **not** mean that all models pass CPU accuracy acceptance. Acceptance requires the same fiber order and per-fiber point counts, with positional Euclidean error at most **0.001 mm**, plus recorded-array checks. Some full-tensor, two-tensor FreeWater, long NODDI2F, degenerate Simple3T, branching, and whole-brain cases still fail strict comparisons. See the [accuracy report](tests/严格精度验收-2026-10-11.md).
+
+## Build
+
+Clone this repository:
+
+```bash
+git clone https://github.com/yishengpoxiao/ukftractography_gpu.git
+cd ukftractography_gpu
+```
+
+The standalone backend requires a C++17 compiler, CMake 3.22+, CUDA Toolkit 12.1+, ITK 5, VTK 9, Eigen 3.4, Teem, SlicerExecutionModel, and zlib. Use a CUDA Toolkit that supports your compiler and GPU architecture.
+
+With dependencies already available, configure `platforms/standalone-2026-10-11` and provide their CMake package paths. Alternatively, the dependency superbuild provides pinned dependency sources:
+
+```bash
+cmake -S platforms/superbuild-2026-10-11 -B ../build-ukfgpu \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CUDA_COMPILER=/path/to/nvcc \
+  -DUKF_CUDA_ARCHITECTURES=89
+cmake --build ../build-ukfgpu --parallel 8
+```
+
+Replace `89` with the architecture of your GPU. The backend is produced in `../build-ukfgpu/backend/bin/`. The standalone backend has been compiled and checked on Linux; a complete dependency superbuild from scratch remains to be verified.
+
+On Windows, run from **x64 Developer PowerShell for VS 2022**:
+
+```powershell
+.\scripts\build_windows_gpu.ps1 `
+  -BuildDirectory C:\UKF\build `
+  -PackageDirectory C:\UKF\package-5.6 `
+  -SlicerVersion 5.6 `
+  -CudaPath 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8'
+```
+
+Adjust `CudaPath` to your installed Toolkit. See the [Windows build and acceptance guide](slicer-extension/WINDOWS-2026-10-11.md) for prerequisites, architecture selection, runtime libraries, and validation. No verified Windows executable or installer is currently included.
+
+## Command-line usage
+
+```bash
+/path/to/UKFTractography_gpu \
+  --dwiFile UKFTractography/Data/Input/two_tensor.nhdr \
+  --maskFile UKFTractography/Data/Input/mask.nhdr \
+  --seedsFile UKFTractography/Data/Input/seed.nhdr \
+  --tracts /new/output/fibers.vtk \
+  --numTensor 2 --seedsPerVoxel 1 --useGPU \
+  --gpuDevice 0 --gpuPrecision fp64
+```
+
+Run the executable with `--help` for the complete option list. The output directory must exist. Runtime library search paths must include the GPU library and CUDA runtime; packaged Slicer runtimes handle this through their launcher.
+
+## 3D Slicer
+
+See the [extension README](slicer-extension/README.md) for installation, packaging, and usage. The extension is not currently published in the online Extensions Catalog. Source checkout alone does not include a compiled backend.
+
+## Validation and data
+
+Small synthetic inputs and CPU baselines are included. The approximately 100 MB upstream whole-brain DWI payload is excluded from the source tree. Restore it when needed:
+
+```bash
+python scripts/fetch_benchmark_data.py
+```
+
+This downloads the data from a pinned upstream commit and checks its SHA-256 hash. The matching header and masks remain in `UKFTractography/Data/Input/`.
+
+Validation tools and historical reports are in `tests/`; detailed reports are currently in Chinese. Slicer tests are in `slicer-extension/UKFGPU/Testing/`. Native acceptance can be launched with `scripts/validate_windows_gpu.py`; it uses Slicer's bundled VTK and NumPy and also supports Linux.
+
+Build outputs, packaged runtimes, and generated validation results are kept outside this repository.
+
+## Attribution and license
+
+Original UKFTractography authors: Yogesh Rathi, Stefan Lienhard, Yinpeng Li, Martin Styner, Ipek Oguz, Yundi Shi, Christian Baumgartner, Ryan Eckbo, Tashrif Billah, and Dheshan Mohandass.
+
+All or portions of this licensed product (such portions are the "Software") have been obtained under license from The Brigham and Women's Hospital, Inc. and are subject to the terms and conditions in [LICENSE.txt](LICENSE.txt). This repository contains modifications to the original software. Preserve the license and applicable source attributions when redistributing it.
