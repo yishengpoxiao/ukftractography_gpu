@@ -27,7 +27,13 @@ def check_windows_x64(path):
 def copy_runtime(args, runtime):
     binary_name = 'UKFTractography_gpu.exe' if args.platform == 'windows' else 'UKFTractography_gpu'
     gpu_name = 'ukf_gpu.dll' if args.platform == 'windows' else 'libukf_gpu.so'
-    cuda_name = args.cuda_runtime.name if args.platform == 'windows' else 'libcudart.so.12'
+    cuda_name = args.cuda_runtime.name
+    if args.platform == 'linux':
+        dynamic = subprocess.check_output(['readelf', '-d', str(args.cuda_runtime.resolve())], text=True)
+        soname = re.search(r'\(SONAME\).*?\[(libcudart\.so\.\d+)\]', dynamic)
+        if not soname:
+            raise ValueError('Expected a shared Linux CUDA runtime with a libcudart.so.<major> SONAME.')
+        cuda_name = soname.group(1)
     binary = args.binary or args.repository.parent/'bin'/binary_name
     gpu_library = args.gpu_library or args.repository.parent/'build-gpu/lib'/gpu_name
     library_dir = runtime/'bin' if args.platform == 'windows' else runtime/'lib'

@@ -75,4 +75,7 @@ try {
 } finally {
     $env:PATH = $PreviousPath
 }
+Invoke-Checked $Python @("$Repository/scripts/package_portable_installer.py",
+    "--runtime", "windows-x86_64=$(Join-Path $PackageDirectory 'UKFGPU/UKFGPU/Runtime')",
+    "--output", (Join-Path $PackageDirectory "UKFGPU-Installer-windows-x86_64.zip"))
 Write-Host "Package built. Run scripts/validate_windows_gpu.py on this Windows GPU before delivery."
