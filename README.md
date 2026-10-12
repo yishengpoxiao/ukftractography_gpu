@@ -65,6 +65,8 @@ Run the executable with `--help` for the complete option list. The output direct
 
 ## 3D Slicer
 
+Download installers, installation instructions and SHA-256 checksums from the [2026-10-12 preview release](https://github.com/yishengpoxiao/ukftractography_gpu/releases/tag/v0.1.0-preview.20261012). Linux binaries are available as a version-adaptive installer ZIP and a Slicer 5.2 installation archive. The Windows ZIP is a source/build kit, not a native binary installer.
+
 The [offline installer](slicer-extension/INSTALLER.md) adapts its installation layout to the running Slicer 5.x version and installs bundled native dependencies privately. Platform-specific native backends are still required; the current binary delivery is Linux x86_64. NVIDIA graphics drivers are a system prerequisite.
 
 See the [extension README](slicer-extension/README.md) for installation, packaging, and usage. The extension is not currently published in the online Extensions Catalog. Source checkout alone does not include a compiled backend.
