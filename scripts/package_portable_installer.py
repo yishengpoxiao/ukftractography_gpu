@@ -100,7 +100,7 @@ def create_bundle(repository, runtimes, output):
                 for name in ('LD_PRELOAD', 'PYTHONHOME', 'PYTHONPATH', 'QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH'):
                     env.pop(name, None)
                 if key.startswith('windows'):
-                    windows = env['SystemRoot']
+                    windows = next(value for name, value in env.items() if name.upper() == 'SYSTEMROOT')
                     env['PATH'] = ';'.join((str(executable.parent), windows+'\\System32', windows))
                 result = subprocess.run([str(executable), '--help'], env=env, stdout=subprocess.PIPE,
                                         stderr=subprocess.STDOUT, timeout=30)
