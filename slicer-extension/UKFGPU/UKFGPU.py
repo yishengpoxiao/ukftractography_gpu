@@ -14,6 +14,38 @@ from UKFGPULib import (MODELS, NUMERIC_OPTIONS, RECORD_OPTIONS, command,
                        process_environment, default_executable, check_result)
 
 
+PARAMETER_HELP = {
+    "seedsPerVoxel": "Number of seed positions per eligible voxel. More seeds increase tract density, runtime and memory use.",
+    "numThreads": "CPU worker threads used by the backend; this does not select the number of GPUs.",
+    "stepLength": "Tracking step size in mm. Smaller steps increase computation. Must be greater than zero.",
+    "recordLength": "Distance between recorded fiber points in mm. Smaller spacing increases output size. Must be at least the tracking step size.",
+    "maxHalfFiberLength": "Maximum tracking length in mm in each direction from a seed; a complete fiber can span both directions.",
+    "seedingThreshold": "Minimum normalized mean DWI signal for eligible seeds. Higher thresholds restrict seeding; 0 requests the backend default.",
+    "stoppingFA": "Stop tensor tracking when fractional anisotropy falls below this threshold (0 to 1). Lower values allow tracking into less anisotropic tissue. Not used by NODDI.",
+    "stoppingThreshold": "Stop tracking when normalized mean DWI signal falls below this threshold (0 to 1). Lower values allow tracking through weaker signal.",
+    "Qm": "Orientation process noise. Larger values allow directions to change more between steps. 0 selects the model-specific backend default.",
+    "Ql": "Tensor eigenvalue process noise. Larger values allow diffusion eigenvalues to change more between steps. 0 selects the backend default. Not used by NODDI.",
+    "Qw": "FreeWater fraction process noise. Used by FreeWater tensor models. 0 selects the backend default.",
+    "Rs": "Expected measurement noise in the DWI signal. Larger values give the measurements less weight in the filter. 0 selects the model-specific backend default.",
+    "Qkappa": "NODDI kappa process noise: controls how much the orientation concentration parameter may change between steps. Used by NODDI models only.",
+    "Qvic": "NODDI compartment-fraction process noise for intracellular and isotropic fractions. Used by NODDI models only.",
+    "minBranchingAngle": "Minimum angle in degrees between tensor directions for creating a branch. Branching requires a positive maximum angle and a compatible multi-tensor model.",
+    "maxBranchingAngle": "Maximum branching angle in degrees (0 to 90). 0 disables branching. Branching increases work and fiber count; strict CPU/GPU agreement is not yet established.",
+}
+RECORD_HELP = {
+    "recordFA": "Record tensor fractional anisotropy along fibers. Tensor models only.",
+    "recordTrace": "Record the sum of tensor eigenvalues along fibers. Tensor models only.",
+    "recordTensors": "Record fitted diffusion tensors, enabling tensor-based fiber coloring and analysis. Tensor models only.",
+    "recordFreeWater": "Record the fitted free-water fraction along fibers. FreeWater tensor models only.",
+    "recordVic": "Record the intracellular volume fraction along fibers. NODDI models only.",
+    "recordKappa": "Record NODDI orientation concentration (kappa). Higher kappa indicates less orientation dispersion. NODDI models only.",
+    "recordViso": "Record the isotropic compartment volume fraction along fibers. NODDI models only.",
+    "recordNMSE": "Record normalized mean squared signal-fitting error along fibers.",
+    "recordState": "Record the complete filter state at each fiber point. Intended for analysis/debugging; increases memory and saved scene size.",
+    "recordCovariance": "Record filter covariance matrices at fiber points. Intended for debugging; can substantially increase memory and saved scene size.",
+}
+
+
 class UKFGPU(ScriptedLoadableModule):
     def __init__(self, parent):
         super().__init__(parent)
@@ -46,35 +78,32 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         browse = qt.QPushButton("Browse…")
         browse.connect("clicked()", self.browseBackend)
         row.addWidget(browse)
-        form.addRow("GPU executable", row)
+        self.addRow(form, "GPU executable", row, "Path to the native GPU backend. Packaged extensions select it automatically; use Browse to choose another executable.")
+        self.backend.setToolTip("Path to the native GPU backend. Packaged extensions select it automatically.")
+        browse.setToolTip("Select a compiled GPU backend executable.")
         self.dwi = self.selector(["vtkMRMLDiffusionWeightedVolumeNode"])
         self.mask = self.selector(["vtkMRMLLabelMapVolumeNode", "vtkMRMLScalarVolumeNode"])
         self.seeds = self.selector(["vtkMRMLLabelMapVolumeNode"], optional=True)
-        form.addRow("DWI volume", self.dwi)
-        form.addRow("Brain mask", self.mask)
-        form.addRow("Seed labelmap (optional)", self.seeds)
+        self.addRow(form, "DWI volume", self.dwi, "Diffusion-weighted volume with gradient directions and b-values. Load a DWI NRRD, not a scalar volume.")
+        self.addRow(form, "Brain mask", self.mask, "Brain mask aligned with the DWI. Tracking is restricted to nonzero mask voxels. Inputs must have no parent transforms.")
+        self.addRow(form, "Seed labelmap (optional)", self.seeds, "Optional labelmap aligned with the DWI. When omitted, the backend seeds eligible voxels inside the brain mask.")
         self.seedLabels = qt.QLineEdit("1")
-        form.addRow("Seed labels (comma separated)", self.seedLabels)
+        self.addRow(form, "Seed labels (comma separated)", self.seedLabels, "Voxel labels to seed in the selected seed labelmap, for example 1,2. Default: 1. Ignored when no seed labelmap is selected.")
         self.model = qt.QComboBox()
         self.model.addItems(list(MODELS))
         self.model.setCurrentIndex(1)
-        form.addRow("Model", self.model)
+        self.addRow(form, "Model", self.model, "1T/2T/3T indicate the number of tensor components. Simple uses axially symmetric tensors; Full allows three independent eigenvalues. FW adds free water; NODDI models neurite compartments. Default: Simple2T. Some models have not passed strict CPU/GPU acceptance.")
         self.precision = qt.QComboBox()
         self.precision.addItems(["FP64", "Mixed FP32 / FP64"])
         self.precision.setCurrentIndex(1)
-        self.precision.setToolTip("Mixed precision accelerates Simple models. Full Tensor, FreeWater and NODDI retain FP64.")
-        form.addRow("Precision", self.precision)
+        self.addRow(form, "Precision", self.precision, "Default: mixed FP32 / FP64. Mixed precision accelerates selected Simple-model signal calculations; sensitive calculations and Full Tensor, FreeWater and NODDI retain FP64.")
         self.device = qt.QSpinBox()
         self.device.setRange(0, 63)
-        self.device.setToolTip("Device index follows CUDA_VISIBLE_DEVICES if it is set.")
-        form.addRow("GPU device", self.device)
-        self.output = qt.QLineEdit()
-        row = qt.QHBoxLayout()
-        row.addWidget(self.output)
-        browseOutput = qt.QPushButton("Save as…")
-        browseOutput.connect("clicked()", self.browseOutput)
-        row.addWidget(browseOutput)
-        form.addRow("Output fibers (.vtk)", row)
+        self.addRow(form, "GPU device", self.device, "Zero-based GPU index. Default: 0. Indices follow CUDA_VISIBLE_DEVICES when set.")
+        resultHint = qt.QLabel("Fibers appear in the scene after tracking. Use Slicer's Save to keep them.")
+        resultHint.wordWrap = True
+        resultHint.setToolTip("No output path is required. Temporary tracking files are deleted after import; fibers remain in the current scene until saved or removed.")
+        form.addRow(resultHint)
 
         advanced = ctk.ctkCollapsibleButton()
         advanced.text = "Tracking and recording"
@@ -96,17 +125,19 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
                 control.setMinimum(1)
             control.setValue(defaults[name])
             self.parameters[name] = control
-            parameters.addRow(name, control)
+            self.addRow(parameters, name, control, PARAMETER_HELP[name] + " Default: " + str(defaults[name]) + ".")
         self.records = {}
         for name in RECORD_OPTIONS:
             control = qt.QCheckBox()
             self.records[name] = control
-            parameters.addRow(name, control)
+            self.addRow(parameters, name, control, RECORD_HELP[name] + " Default: off. Recording adds memory use.")
 
         row = qt.QHBoxLayout()
         self.runButton = qt.QPushButton("Run GPU tracking")
         self.cancelButton = qt.QPushButton("Cancel")
         self.cancelButton.enabled = False
+        self.runButton.setToolTip("Run GPU tracking and add the resulting fibers to the current Slicer scene.")
+        self.cancelButton.setToolTip("Stop the current tracking job and delete its temporary files.")
         self.runButton.connect("clicked()", self.run)
         self.cancelButton.connect("clicked()", self.logic.cancel)
         row.addWidget(self.runButton)
@@ -119,6 +150,13 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         self.log.setMaximumBlockCount(4000)
         self.layout.addWidget(self.log)
         self.layout.addStretch(1)
+
+    def addRow(self, form, title, field, help_text):
+        label = qt.QLabel(title)
+        label.setToolTip(help_text)
+        if hasattr(field, "setToolTip"):
+            field.setToolTip(help_text)
+        form.addRow(label, field)
 
     def selector(self, types, optional=False):
         selector = slicer.qMRMLNodeComboBox()
@@ -133,11 +171,6 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         path = qt.QFileDialog.getOpenFileName(self.parent, "Select GPU executable", self.backend.text)
         if path:
             self.backend.text = path
-
-    def browseOutput(self):
-        path = qt.QFileDialog.getSaveFileName(self.parent, "Save fiber bundle", "UKFGPU.vtk", "VTK fibers (*.vtk)")
-        if path:
-            self.output.text = path if path.lower().endswith(".vtk") else path + ".vtk"
 
     def appendLog(self, text):
         cursor = self.log.textCursor()
@@ -154,7 +187,7 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         options.update({name: control.checked for name, control in self.records.items()})
         try:
             self.logic.start(self.backend.text, self.dwi.currentNode(), self.mask.currentNode(),
-                             self.output.text, self.model.currentText, self.precision.currentIndex,
+                             self.model.currentText, self.precision.currentIndex,
                              self.device.value, self.seeds.currentNode(), self.seedLabels.text, options)
             self.runButton.enabled = False
             self.cancelButton.enabled = True
@@ -165,7 +198,7 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
     def onFinished(self, node, error):
         self.runButton.enabled = True
         self.cancelButton.enabled = False
-        self.status.text = error or "Completed: " + node.GetName()
+        self.status.text = error or "Added to scene: " + node.GetName() + ". Use Save to keep fibers."
         if error and error != "Cancelled":
             slicer.util.errorDisplay(error)
 
@@ -185,7 +218,7 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
         self.lastLog = ""
         self.cancelled = False
 
-    def start(self, executable, dwi, mask, output, model="Simple2T", precision=1,
+    def start(self, executable, dwi, mask, model="Simple2T", precision=1,
               device=0, seeds=None, seed_labels="1", options=None):
         if self.process is not None:
             raise RuntimeError("Tracking is already running.")
@@ -198,25 +231,20 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
             raise ValueError("DWI gradient metadata is missing.")
         if mask is None:
             raise ValueError("Select a brain mask.")
-        if not output or Path(output).suffix.lower() != ".vtk":
-            raise ValueError("Select a new .vtk output file.")
-        output = Path(output).expanduser().resolve()
-        if output.exists() or Path(str(output) + ".log").exists():
-            raise ValueError("Output or log already exists. Choose a new filename.")
-        if not output.parent.is_dir():
-            raise ValueError("The output directory does not exist.")
         for node in (dwi, mask, seeds):
             if node and node.GetParentTransformNode():
                 raise ValueError("Inputs with parent transforms are not supported; use aligned volumes without parent transforms.")
         # Build argv before exporting so invalid model/options leave no temporary files.
-        args = command(executable, "dwi.nrrd", "mask.nrrd", output, model,
+        args = command(executable, "dwi.nrrd", "mask.nrrd", "fibers.vtk", model,
                        precision, device, "seeds.nrrd" if seeds else None, seed_labels, options)
         self.jobDirectory = tempfile.mkdtemp(prefix="UKFGPU-", dir=slicer.app.temporaryPath)
+        self.output = str(Path(self.jobDirectory) / "fibers.vtk")
+        self.model = model
+        self.precision = precision
         try:
             for node, name in ((dwi, "dwi"), (mask, "mask"), (seeds, "seeds")):
                 if node and not slicer.util.exportNode(node, os.path.join(self.jobDirectory, name + ".nrrd")):
                     raise RuntimeError("Could not export " + name)
-            self.output = str(output)
             self.lastLog = ""
             self.cancelled = False
             self.process = qt.QProcess(slicer.app)
@@ -254,7 +282,6 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
         try:
             if self.cancelled:
                 error = "Cancelled"
-                Path(self.output).unlink(missing_ok=True)
             else:
                 check_result(exit_code, self.lastLog, self.output)
                 # UKF writes RAS coordinates without a VTK coordinate-system tag.
@@ -270,11 +297,11 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
                 node_class = ("vtkMRMLFiberBundleNode" if
                               slicer.mrmlScene.IsNodeClassRegistered("vtkMRMLFiberBundleNode")
                               else "vtkMRMLModelNode")
-                node = slicer.mrmlScene.AddNewNodeByClass(node_class, Path(self.output).stem)
+                node = slicer.mrmlScene.AddNewNodeByClass(node_class, "UKF_" + self.model)
                 node.SetAndObservePolyData(reader.GetOutput())
                 node.CreateDefaultDisplayNodes()
-                node.SetAttribute("UKFGPU.LogFile", self.output + ".log")
-                node.SetAttribute("UKFGPU.OutputFile", self.output)
+                node.SetAttribute("UKFGPU.Model", self.model)
+                node.SetAttribute("UKFGPU.Precision", "FP64" if self.precision == 0 else "Mixed FP32 / FP64")
                 if slicer.app.layoutManager():
                     slicer.util.resetThreeDViews()
         except Exception as exc:
@@ -282,7 +309,6 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
         self.complete(node, error)
 
     def complete(self, node, error):
-        Path(self.output + ".log").write_text(self.lastLog, encoding="utf-8")
         self.release()
         if self.onFinished:
             self.onFinished(node, error)

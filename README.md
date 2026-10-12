@@ -10,7 +10,7 @@ This is a modified version of [pnlbwh/ukftractography](https://github.com/pnlbwh
 - FP64 and mixed precision. `--gpuPrecision fp32` uses FP32 for selected Simple-model signal calculations while sensitive calculations remain FP64; other models retain FP64.
 - Tracking kernel and record-transfer optimizations, including compact downloads and reuse of intermediate products.
 - A Slicer interface for model selection, tracking parameters, asynchronous execution, cancellation, logs, and fiber display.
-- Linux integration tested with Slicer 5.6.2 and 5.12.4. Windows 11 / Slicer 5.6.2 build and packaging scripts are provided, but native Windows compilation and execution remain unverified.
+- Linux integration tested with Slicer 5.2.2, 5.6.2 and 5.12.4. Tracking results appear directly in the scene; parameter controls provide hover help. Windows 11 / Slicer 5.6.2 build and packaging scripts are provided, but native Windows compilation and execution remain unverified.
 
 GPU implementation does **not** mean that all models pass CPU accuracy acceptance. Acceptance requires the same fiber order and per-fiber point counts, with positional Euclidean error at most **0.001 mm**, plus recorded-array checks. Some full-tensor, two-tensor FreeWater, long NODDI2F, degenerate Simple3T, branching, and whole-brain cases still fail strict comparisons. See the [accuracy report](tests/严格精度验收-2026-10-11.md).
 

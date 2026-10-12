@@ -2,7 +2,7 @@
 
 This extension connects the CUDA UKF backend to Slicer. It provides 12 experimental models, FP64/mixed precision, GPU selection, tracking and recording options, asynchronous execution, cancellation, logs, and fiber display.
 
-Linux integration has been tested with Slicer 5.6.2 and 5.12.4. Windows native build and packaging support targets Windows 11 / Slicer 5.6.2; **no Windows binary has been compiled and validated yet**. See the [Windows guide](WINDOWS-2026-10-11.md).
+Linux integration has been tested with Slicer 5.2.2, 5.6.2 and 5.12.4. The scene-first workflow and hover help were validated with Slicer 5.2.2; see the [current validation report](VALIDATION-2026-10-12.md). Windows native build and packaging support targets Windows 11 / Slicer 5.6.2; **no Windows binary has been compiled and validated yet**. See the [Windows guide](WINDOWS-2026-10-11.md).
 
 ## Install
 
@@ -23,8 +23,10 @@ The tested Linux runtime targets RTX 4090 / sm_89 and requires a CUDA 12.1-compa
 1. Load a DWI NRRD with DWMRI gradients and b-value metadata.
 2. Select the brain mask and optional seed labelmap. Export segmentation nodes to labelmaps first; enter labels separated by commas.
 3. Select the model, precision, and GPU. Device indices respect `CUDA_VISIBLE_DEVICES`.
-4. Choose a new `.vtk` output path, adjust **Tracking and recording**, and run.
-5. Fibers are displayed on completion; the output and `.vtk.log` remain at the chosen location. Cancellation stops the backend and removes incomplete output and temporary inputs.
+4. Adjust **Tracking and recording** and click **Run GPU tracking**. No output path is required.
+5. Fibers are added directly to the current scene and displayed on completion. Use Slicer's **Save** dialog to save the fibers or scene when needed. Temporary tracking inputs and output are removed after import; unsaved fibers are lost when the scene is discarded. Cancellation or failure also removes the job's temporary files. Logs remain in the module's log panel for inspection and copying.
+
+Hover over parameter labels or controls to see their purpose, units, defaults, model applicability, and relevant runtime/memory implications. Recording checkboxes also explain the arrays they add.
 
 Models include Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F. Mixed precision lowers selected Simple-model signal calculations to FP32; sensitive calculations and other models retain FP64. Zero Qm/Ql/Qw/Rs values use backend model defaults. Branching is disabled by default.
 
