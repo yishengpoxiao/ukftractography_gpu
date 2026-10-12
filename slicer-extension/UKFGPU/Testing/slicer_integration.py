@@ -12,6 +12,7 @@ import vtk
 from vtk.util.numpy_support import vtk_to_numpy
 
 from UKFGPU import UKFGPULogic
+from UKFGPULib import MODELS, PRESETS
 
 
 def wait(logic, timeout=90):
@@ -38,17 +39,63 @@ try:
     output.mkdir(parents=True, exist_ok=True)
     backend = os.environ["UKF_GPU_EXECUTABLE"]
     data = repository/"UKFTractography/Data/Input"
-    reference = repository.parent/"validation/precision-2026-10-11/all-models"
+    reference = repository.parent/"validation/reference-gpu"
     # Create the actual registered widget, exercising selectors, controls and signals.
     widget = slicer.modules.ukfgpu.widgetRepresentation().self()
     assert widget.backend.text == backend
+    deadline = time.monotonic() + 15
+    while widget.gpuProbe is not None or not widget.gpuDetected:
+        slicer.app.processEvents()
+        assert time.monotonic() < deadline, widget.gpuStatus.text
+        time.sleep(0.01)
+    assert widget.gpuDevice() == 0
+    print("PASS asynchronous CUDA GPU discovery:", widget.device.currentText, flush=True)
+    widget.gpuProbe = qt.QProcess(widget.parent)
+    widget.finishGpuDiscovery([], "")
+    assert not widget.runButton.enabled and not widget.device.enabled
+    widget.gpuProbe = qt.QProcess(widget.parent)
+    widget.finishGpuDiscovery(None, "Test discovery failure")
+    widget.device.setEditText("2")
+    assert widget.gpuDevice() == 2 and widget.runButton.enabled
+    widget.refreshGpu()
+    deadline = time.monotonic() + 15
+    while widget.gpuProbe is not None:
+        slicer.app.processEvents()
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    assert widget.gpuDetected and widget.gpuDevice() == 0
+    widget.fiberName.text = "Test fibers 测试"
+    widget.model.currentIndex = list(MODELS).index("Simple2T-FW")
+    assert widget.parameters['Qw'].enabled and widget.records['recordFreeWater'].enabled
+    widget.records['recordFreeWater'].checked = True
+    widget.model.currentIndex = list(MODELS).index("NODDI1F")
+    assert widget.parameters['Qvic'].enabled and not widget.parameters['Ql'].enabled
+    assert not widget.records['recordFreeWater'].enabled and not widget.records['recordFreeWater'].checked
+    assert not widget.precision.enabled and widget.precision.currentIndex == 0
+    widget.model.currentIndex = list(MODELS).index("Simple3T")
+    widget.preset.currentIndex = list(PRESETS).index("Fine sampling")
+    widget.applyPreset()
+    assert widget.parameters['stepLength'].value == 0.075
+    assert widget.parameters['recordLength'].value == 0.225
+    widget.model.currentIndex = list(MODELS).index("Simple2T")
+    widget.preset.currentIndex = list(PRESETS).index("Quick preview")
+    widget.applyPreset()
+    assert widget.parameters['maxHalfFiberLength'].value == 50
+    widget.preset.currentIndex = list(PRESETS).index("Standard")
+    widget.applyPreset()
+    assert widget.parameters['stepLength'].value == 0.3
+    assert not widget.parameters['maxBranchingAngle'].enabled
+    widget.precision.currentIndex = 1
+    assert widget.fiberName.text == "Test fibers 测试"
+    print("PASS model-dependent controls and explicit presets", flush=True)
     assert widget.model.count == 12
     assert not hasattr(widget, "output")
     for control in [widget.dwi, widget.mask, widget.seeds, widget.seedLabels,
-                    widget.model, widget.precision, widget.device,
+                    widget.model, widget.precision, widget.device, widget.fiberName, widget.preset,
                     *widget.parameters.values(), *widget.records.values()]:
         assert control.toolTip, control.className()
     print("PASS scene-first UI and hover help", flush=True)
+    existing = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "Test fibers 测试")
     mask = slicer.util.loadLabelVolume(str(data/"mask.nhdr"))
     seeds = slicer.util.loadLabelVolume(str(data/"seed.nhdr"))
     for model, source, name, precision in [
@@ -78,6 +125,8 @@ try:
             widget.dwi.setCurrentNode(dwi)
             widget.mask.setCurrentNode(mask)
             widget.seeds.setCurrentNode(seeds)
+            assert widget.parameters["maxBranchingAngle"].enabled
+            widget.fiberName.text = "Test fibers 测试"
             widget.parameters["numThreads"].value = 4
             for key, control in widget.records.items():
                 control.checked = options.get(key, False)
@@ -91,6 +140,10 @@ try:
         assert dwi.GetStorageNode().GetFileName() == storage_path
         assert len(results) == 1 and results[0][1] is None, results
         node = results[0][0]
+        if model == "Simple2T":
+            assert node.GetName().startswith("Test fibers 测试") and node.GetName() != existing.GetName()
+        else:
+            assert node.GetName() == "UKF_" + model
         expected = polydata(reference/(name+".vtk"))
         actual = node.GetPolyData()
         assert actual.GetNumberOfLines() == expected.GetNumberOfLines()

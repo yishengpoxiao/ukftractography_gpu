@@ -22,11 +22,15 @@ The tested Linux runtime targets RTX 4090 / sm_89 and requires a CUDA 12.1-compa
 
 1. Load a DWI NRRD with DWMRI gradients and b-value metadata.
 2. Select the brain mask and optional seed labelmap. Export segmentation nodes to labelmaps first; enter labels separated by commas.
-3. Select the model, precision, and GPU. Device indices respect `CUDA_VISIBLE_DEVICES`.
-4. Adjust **Tracking and recording** and click **Run GPU tracking**. No output path is required.
+3. Select the model and precision. The GPU list automatically shows backend-visible CUDA ordinals, names and total memory. Click **Refresh** after changing the backend. Detection runs in a separate process and respects `CUDA_VISIBLE_DEVICES`; if discovery fails, a manual CUDA index is available. When discovery confirms no visible device, tracking is disabled until a successful refresh.
+4. Set **Fiber name** if desired; leave it empty to use `UKF_<model>`. Duplicate names are automatically distinguished by Slicer. Choose a **Tracking preset** and click **Apply**, or adjust **Tracking and recording**, then click **Run GPU tracking**. No output path is required.
 5. Fibers are added directly to the current scene and displayed on completion. Use Slicer's **Save** dialog to save the fibers or scene when needed. Temporary tracking inputs and output are removed after import; unsaved fibers are lost when the scene is discarded. Cancellation or failure also removes the job's temporary files. Logs remain in the module's log panel for inspection and copying.
 
 Hover over parameter labels or controls to see their purpose, units, defaults, model applicability, and relevant runtime/memory implications. Recording checkboxes also explain the arrays they add.
+
+Available presets are **Standard**, **Quick preview**, and **Fine sampling**. Standard uses model-specific filter noise defaults and standard sampling (0.3/0.9 mm step/record spacing for 1T/2T, 0.15/0.45 mm for 3T). Quick preview limits each half-fiber to 50 mm and uses 1.8 mm recording spacing. Fine sampling halves the standard step and record spacing; it costs more computation and does not guarantee better anatomical accuracy. Apply replaces tracking parameters and clears all recording options, while preserving model, precision, device, inputs and fiber name. Selecting a preset alone does not overwrite manual settings.
+
+Controls are enabled by model: tensor FA/eigenvalue parameters and tensor recording, FreeWater noise/recording, and NODDI noise/recording. Branching additionally requires a multi-tensor model and a seed labelmap. Switching models clears incompatible record flags and disables unsupported precision selection; Full Tensor, FreeWater and NODDI use FP64. Disabled numeric options are omitted from the backend command.
 
 Models include Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F. Mixed precision lowers selected Simple-model signal calculations to FP32; sensitive calculations and other models retain FP64. Zero Qm/Ql/Qw/Rs values use backend model defaults. Branching is disabled by default.
 
@@ -74,6 +78,6 @@ CUDA_VISIBLE_DEVICES=0 xvfb-run -a /path/to/Slicer \
   --python-script slicer-extension/UKFGPU/Testing/slicer_integration.py
 ```
 
-This historical regression test requires GPU reference outputs from `validation/precision-2026-10-11/all-models`, which are not included in the repository. It checks widgets, three models' export/run/import flow, geometry, recorded arrays, cancellation, and failure cleanup. It is not full CPU accuracy acceptance. See the [integration report](VALIDATION-2026-10-11.md).
+This historical regression test requires GPU reference outputs from `validation/reference-gpu`, which are not included in the repository. It checks widgets, three models' export/run/import flow, geometry, recorded arrays, cancellation, and failure cleanup. It is not full CPU accuracy acceptance. See the [integration report](VALIDATION-2026-10-11.md).
 
 This is a modified UKFTractography integration. Original software attribution and redistribution terms are in [LICENSE.txt](../LICENSE.txt).
