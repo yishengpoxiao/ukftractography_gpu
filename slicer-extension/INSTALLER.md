@@ -52,5 +52,4 @@ python scripts/package_portable_installer.py \
 
 To include both operating systems, add `--runtime windows-x86_64=/path/to/windows/Runtime` with real Windows x64 binaries and DLLs. See [the Windows build guide](WINDOWS-2026-10-11.md). Packaging Linux runtimes requires `ldd` and `readelf`; Windows runtimes are checked for PE architecture and required CUDA/MSVC DLLs. Assemble combined bundles on Linux.
 
-Output paths must be new; existing packages and manifests are not overwritten. The numerical GPU accuracy limitations remain unchanged.
-
+Output paths must be new; existing packages and manifests are not overwritten. See the module README for precision options and known numerical limitations.
