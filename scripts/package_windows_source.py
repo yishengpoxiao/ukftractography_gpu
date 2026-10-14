@@ -14,12 +14,11 @@ source_root = 'UKFGPU-Windows-source-' + date.today().isoformat()
 files = set()
 for name in ('common', 'ukf', 'platforms', 'slicer-extension', 'third-party'):
     for path in (repository/name).rglob('*'):
-        if path.is_file() and not {'__pycache__', 'Runtime'} & set(path.parts):
+        if (path.is_file() and not {'__pycache__', 'Runtime', 'Testing'} & set(path.parts)
+                and not any(word in path.name.upper() for word in ('VALIDATION', 'ACCURACY'))):
             files.add(path)
-for name in ('package_windows_source.py', 'package_slicer_extension.py', 'package_portable_installer.py', 'build_windows_gpu.ps1', 'install_cuda_toolkit.ps1', 'validate_windows_gpu.py'):
+for name in ('package_windows_source.py', 'package_slicer_extension.py', 'package_portable_installer.py', 'build_windows_gpu.ps1', 'install_cuda_toolkit.ps1'):
     files.add(repository/'scripts'/name)
-for name in ('assert_fiber_data.py', 'strict_geometry.py', '严格精度验收-2026-10-11.md'):
-    files.add(repository/'tests'/name)
 for name in ('single_tensor', 'single_tensor_fw', 'two_tensor', 'two_tensor_fw', 'mask', 'seed'):
     for extension in ('.nhdr', '.raw.gz'):
         files.add(repository/'UKFTractography/Data/Input'/(name+extension))

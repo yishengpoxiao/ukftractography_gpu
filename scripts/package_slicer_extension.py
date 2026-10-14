@@ -96,7 +96,7 @@ def package(args):
     args.output.mkdir(parents=True, exist_ok=False)
     stage = args.output/'UKFGPU'
     shutil.copytree(args.repository/'slicer-extension', stage,
-                    ignore=shutil.ignore_patterns('__pycache__', 'Runtime'))
+                    ignore=shutil.ignore_patterns('__pycache__', 'Runtime', 'Testing', '*VALIDATION*', '*ACCURACY*'))
     module = stage/'UKFGPU'
     copy_runtime(args, module/'Runtime')
     shutil.copy2(args.repository/'LICENSE.txt', stage/'LICENSE.txt')
