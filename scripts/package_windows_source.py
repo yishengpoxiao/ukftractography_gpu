@@ -16,7 +16,7 @@ for name in ('common', 'ukf', 'platforms', 'slicer-extension'):
     for path in (repository/name).rglob('*'):
         if path.is_file() and not {'__pycache__', 'Runtime'} & set(path.parts):
             files.add(path)
-for name in ('package_windows_source.py', 'package_slicer_extension.py', 'package_portable_installer.py', 'build_windows_gpu.ps1', 'validate_windows_gpu.py'):
+for name in ('package_windows_source.py', 'package_slicer_extension.py', 'package_portable_installer.py', 'build_windows_gpu.ps1', 'install_cuda_toolkit.ps1', 'validate_windows_gpu.py'):
     files.add(repository/'scripts'/name)
 for name in ('assert_fiber_data.py', 'strict_geometry.py', '严格精度验收-2026-10-11.md'):
     files.add(repository/'tests'/name)

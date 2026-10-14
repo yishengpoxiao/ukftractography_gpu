@@ -35,7 +35,7 @@ class InstallerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             fixture(root)
-            for version in ((5, 2), (5, 6), (5, 12)):
+            for version in ((5, 2), (5, 6), (5, 12), (6, 0)):
                 for system, binary in (('Linux', 'ukf-gpu'), ('Windows', 'UKFTractography_gpu.exe')):
                     output = root/('%s-%s.tar.gz' % (version[1], system))
                     installer.prepare_archive(root, output, version, 'test-revision', system, 'AMD64')
@@ -50,7 +50,7 @@ class InstallerTest(unittest.TestCase):
                     with self.assertRaises(FileExistsError):
                         installer.prepare_archive(root, output, version, 'test-revision', system, 'AMD64')
             with self.assertRaisesRegex(RuntimeError, 'Slicer 5.2'):
-                installer.prepare_archive(root, root/'unsupported.tar.gz', (6, 0), 'r')
+                installer.prepare_archive(root, root/'unsupported.tar.gz', (5, 1), 'r')
 
     def test_tampered_missing_and_unlisted_payload_rejected(self):
         for mode in ('modified', 'missing', 'unlisted'):

@@ -9,7 +9,7 @@ This is a modified version of [pnlbwh/ukftractography](https://github.com/pnlbwh
 - GPU filtering, constraints, tracking, and recording for 12 experimental models: Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F.
 - FP64 and mixed precision. `--gpuPrecision fp32` uses FP32 for selected Simple-model signal calculations while sensitive calculations remain FP64; other models retain FP64.
 - Tracking kernel and record-transfer optimizations, including compact downloads and reuse of intermediate products.
-- A Slicer interface for model selection, tracking parameters, automatic GPU discovery, model-aware controls, tracking presets, custom fiber names, asynchronous execution, cancellation, logs, and fiber display.
+- A Slicer interface with input validation, automatic GPU discovery/free-memory recommendation, single or explicitly selected multi-GPU tracking, real completion counts and elapsed time, scene-persistent parameters, custom fiber names, and direction/FA/length/solid coloring.
 - Linux integration tested with Slicer 5.2.2, 5.6.2 and 5.12.4. Tracking results appear directly in the scene; parameter controls provide hover help. Windows 11 / Slicer 5.6.2 build and packaging scripts are provided, but native Windows compilation and execution remain unverified.
 
 GPU implementation does **not** mean that all models pass CPU accuracy acceptance. Acceptance requires the same fiber order and per-fiber point counts, with positional Euclidean error at most **0.001 mm**, plus recorded-array checks. Some full-tensor, two-tensor FreeWater, long NODDI2F, degenerate Simple3T, branching, and whole-brain cases still fail strict comparisons. See the [accuracy report](tests/严格精度验收-2026-10-11.md).
@@ -23,19 +23,18 @@ git clone https://github.com/yishengpoxiao/ukftractography_gpu.git
 cd ukftractography_gpu
 ```
 
-The standalone backend requires a C++17 compiler, CMake 3.22+, CUDA Toolkit 12.1+, ITK 5, VTK 9, Eigen 3.4, Teem, SlicerExecutionModel, and zlib. Use a CUDA Toolkit that supports your compiler and GPU architecture.
+The standalone backend requires a C++17 compiler, CMake 3.22+, CUDA Toolkit compatible with your compiler and GPU, ITK 5, VTK 9, Eigen 3.4, Teem, SlicerExecutionModel, and zlib. Use a CUDA Toolkit that supports your compiler and GPU architecture.
 
-With dependencies already available, configure `platforms/standalone-2026-10-11` and provide their CMake package paths. Alternatively, the dependency superbuild provides pinned dependency sources:
+With dependencies already available, configure `platforms/standalone-2026-10-14-r2` and provide their CMake package paths. Alternatively, the dependency superbuild provides pinned dependency sources:
 
 ```bash
-cmake -S platforms/superbuild-2026-10-11 -B ../build-ukfgpu \
+cmake -S platforms/superbuild-2026-10-14-r4 -B ../build-ukfgpu \
   -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CUDA_COMPILER=/path/to/nvcc \
-  -DUKF_CUDA_ARCHITECTURES=89
+  -DCMAKE_CUDA_COMPILER=/path/to/nvcc
 cmake --build ../build-ukfgpu --parallel 8
 ```
 
-Replace `89` with the architecture of your GPU. The backend is produced in `../build-ukfgpu/backend/bin/`. The standalone backend has been compiled and checked on Linux; a complete dependency superbuild from scratch remains to be verified.
+GPU targets are detected from `nvcc --list-gpu-code`; no fixed CUDA Toolkit version is required. Override with `-DUKF_CUDA_ARCHITECTURES="75-real;89-real;75-virtual"` when needed. The Toolkit must support C++17 and the selected host compiler. The backend is produced in `../build-ukfgpu/backend/bin/`. The standalone backend has been compiled and checked on Linux; a complete dependency superbuild from scratch remains to be verified.
 
 On Windows, run from **x64 Developer PowerShell for VS 2022**:
 
@@ -67,7 +66,7 @@ Run the executable with `--help` for the complete option list. The output direct
 
 Download installers, installation instructions and SHA-256 checksums from the [2026-10-14 preview release](https://github.com/yishengpoxiao/ukftractography_gpu/releases/tag/v0.1.0-preview.20261014). Linux binaries are available as a version-adaptive installer ZIP and a Slicer 5.2 installation archive. The Windows ZIP is a source/build kit, not a native binary installer.
 
-The [offline installer](slicer-extension/INSTALLER.md) adapts its installation layout to the running Slicer 5.x version and installs bundled native dependencies privately. Platform-specific native backends are still required; the current binary delivery is Linux x86_64. NVIDIA graphics drivers are a system prerequisite.
+The [offline installer](slicer-extension/INSTALLER.md) adapts its installation layout to the running Slicer 5.2 or newer version and installs bundled native dependencies privately. Platform-specific native backends are still required; the current binary delivery is Linux x86_64. NVIDIA graphics drivers are a system prerequisite.
 
 See the [extension README](slicer-extension/README.md) for installation, packaging, and usage. The extension is not currently published in the online Extensions Catalog. Source checkout alone does not include a compiled backend.
 
@@ -81,7 +80,7 @@ python scripts/fetch_benchmark_data.py
 
 This downloads the data from a pinned upstream commit and checks its SHA-256 hash. The matching header and masks remain in `UKFTractography/Data/Input/`.
 
-Validation tools and historical reports are in `tests/`; detailed reports are currently in Chinese. Slicer tests are in `slicer-extension/UKFGPU/Testing/`. Native acceptance can be launched with `scripts/validate_windows_gpu.py`; it uses Slicer's bundled VTK and NumPy and also supports Linux.
+Validation tools and historical reports are in `tests/`; detailed reports are currently in Chinese. Slicer tests are in `slicer-extension/UKFGPU/Testing/`. Native acceptance can be launched with `scripts/validate_windows_gpu.py`; it uses Slicer's bundled VTK and NumPy and also supports Linux. Add `--real-seeds 128 --models full1 full2 full3 simple3 simple2-fw full2-fw` for deterministic real-DWI checks after restoring the benchmark payload. Failures return a nonzero exit code and retain per-fiber details in `acceptance.json`.
 
 Build outputs, packaged runtimes, and generated validation results are kept outside this repository.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bundle native runtimes into an offline installer adapting to Slicer 5.x."""
+"""Bundle native runtimes into an offline installer adapting to the running Slicer version."""
 import argparse
 from datetime import date
 import hashlib

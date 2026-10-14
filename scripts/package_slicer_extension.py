@@ -30,7 +30,7 @@ def copy_runtime(args, runtime):
     cuda_name = args.cuda_runtime.name
     if args.platform == 'linux':
         dynamic = subprocess.check_output(['readelf', '-d', str(args.cuda_runtime.resolve())], text=True)
-        soname = re.search(r'\(SONAME\).*?\[(libcudart\.so\.\d+)\]', dynamic)
+        soname = re.search(r'\(SONAME\).*?\[(libcudart\.so\.[\d.]+)\]', dynamic)
         if not soname:
             raise ValueError('Expected a shared Linux CUDA runtime with a libcudart.so.<major> SONAME.')
         cuda_name = soname.group(1)
@@ -133,7 +133,7 @@ def main():
     parser.add_argument('--platform', choices=['linux', 'windows'], default='windows' if os.name == 'nt' else 'linux')
     parser.add_argument('--binary', type=Path)
     parser.add_argument('--gpu-library', type=Path)
-    parser.add_argument('--cuda-runtime', type=Path, required=True, help='libcudart.so.12 or cudart64_12.dll')
+    parser.add_argument('--cuda-runtime', type=Path, required=True, help='Matching shared CUDA runtime (libcudart.so.* or cudart64_*.dll)')
     parser.add_argument('--runtime-dir', type=Path, action='append', default=[], help='Windows x64 DLL directory; repeat for additional dependencies')
     parser.add_argument('--output', type=Path, required=True, help='New output directory (must not exist)')
     parser.add_argument('--cmake', default='cmake')

@@ -267,11 +267,8 @@ __device__ void d_diffusion(const T m0, const T m1, const T m2,
     {
     for (int b = 0; b < 3; ++b)
       {
-      T s = T(0);
-      for (int c = 0; c < 3; ++c)
-        {
-        s += T1[a][c] * R[b][c];
-        }
+      // Eigen's scaled 3x3 product evaluates each coefficient right-associated.
+      const T s = T1[a][0]*R[b][0] + (T1[a][1]*R[b][1] + T1[a][2]*R[b][2]);
       D[a * 3 + b] = s * T(1e-6);   /* GLOBAL_TENSOR_UNPACK_VALUE */
       }
     }
@@ -314,13 +311,13 @@ __device__ T d_H_grad(int model, const T* D1, const T* D2,
   const T bj = b[j];
   const T du0 = D1[0] * u0 + D1[1] * u1 + D1[2] * u2;
   const T du1 = D1[3] * u0 + D1[4] * u1 + D1[5] * u2;
-  const T du2 = D1[6] * u0 + D1[7] * u1 + D1[8] * u2;
+  const T du2 = D1[6] * u0 + (D1[7] * u1 + D1[8] * u2);
   T val = exp(-bj * (u0 * du0 + u1 * du1 + u2 * du2)) * w1;
   if (model == UKF_GPU_MODEL_SIMPLE2T)
     {
     const T ev0 = D2[0] * u0 + D2[1] * u1 + D2[2] * u2;
     const T ev1 = D2[3] * u0 + D2[4] * u1 + D2[5] * u2;
-    const T ev2 = D2[6] * u0 + D2[7] * u1 + D2[8] * u2;
+    const T ev2 = D2[6] * u0 + (D2[7] * u1 + D2[8] * u2);
     val += exp(-bj * (u0 * ev0 + u1 * ev1 + u2 * ev2)) * w2;
     }
   return val;
@@ -1297,7 +1294,7 @@ struct WaveProfile
   }
 };
 
-bool run_waves(const GPUDarParams& P, GPUDevPointers& raw, int F, std::string& err, std::vector<GPUBranchSeed>* branches)
+bool run_waves(const GPUDarParams& P, GPUDevPointers& raw, int F, std::string& err, std::vector<GPUBranchSeed>* branches, int device, int base, int total)
 {
   DevBufs D = DevBufs::from(raw);
   const int block = 32;
@@ -1312,6 +1309,8 @@ bool run_waves(const GPUDarParams& P, GPUDevPointers& raw, int F, std::string& e
   CHK(cudaGetLastError());
   WaveProfile profile;
   int active = F;
+  const bool report_progress = getenv("UKF_GPU_PROGRESS") != NULL;
+  auto last_progress = std::chrono::steady_clock::now();
   for (int step = 1; step <= P.max_length && active > 0; ++step)
     {
     if (P.branching) { CHK(cudaMemset(raw.branch_count,0,sizeof(int))); }
@@ -1373,6 +1372,16 @@ bool run_waves(const GPUDarParams& P, GPUDevPointers& raw, int F, std::string& e
     k_compact<<<(active + block - 1) / block, block>>>(raw, active);
     CHK(cudaGetLastError());
     CHK(cudaMemcpy(&active, D.n_active_tmp, sizeof(int), cudaMemcpyDeviceToHost));
+    if (report_progress)
+      {
+      const auto now = std::chrono::steady_clock::now();
+      if (step == 0 || active == 0 || std::chrono::duration<double>(now-last_progress).count() >= 0.25)
+        {
+        fprintf(stderr, "[UKF_PROGRESS] {\"device\":%d,\"completed\":%d,\"total\":%d}\n",
+                device, base+F-active, total);
+        last_progress = now;
+        }
+      }
     if (P.branching)
       {
       int count = 0;
@@ -1515,7 +1524,7 @@ bool gpu_compute(const GPUDarParams& P,
     const auto wave_start = std::chrono::steady_clock::now();
     CHK(cudaMemset(D.invalid, 0, sizeof(int)));
     const size_t first_branch = branches ? branches->size() : 0;
-    if (!run_waves(P, D, F, err, branches)) { return false; }
+    if (!run_waves(P, D, F, err, branches, device, base, S)) { return false; }
     if (branches) { for (size_t i = first_branch; i < branches->size(); ++i) { (*branches)[i].fiber += base; } }
     int invalid = 0;
     CHK(cudaMemcpy(&invalid, D.invalid, sizeof(int), cudaMemcpyDeviceToHost));
@@ -1544,6 +1553,8 @@ bool gpu_compute(const GPUDarParams& P,
     if (P.record_fa) { DOWNLOAD(rec_fa, out_rec_fa, 1); DOWNLOAD(rec_fa2, out_rec_fa2, 1); }
     if (P.record_cov) { DOWNLOAD(rec_cov, out_rec_cov, n*n); }
 #undef DOWNLOAD
+    if (getenv("UKF_GPU_PROGRESS"))
+      { fprintf(stderr, "[UKF_PROGRESS] {\"device\":%d,\"completed\":%d,\"total\":%d}\n", device, base+F, S); }
     if (getenv("UKF_GPU_PROFILE"))
       {
       const auto finish = std::chrono::steady_clock::now();

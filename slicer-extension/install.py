@@ -57,8 +57,8 @@ def select_runtime(bundle, manifest, system=None, machine=None):
 
 def prepare_archive(bundle, destination, version, revision, system=None, machine=None):
     """Create a native Extensions Manager archive without editing Slicer settings."""
-    if version[0] != 5 or version[1] < 2:
-        raise RuntimeError('This installer targets Slicer 5.2+ within the 5.x series.')
+    if tuple(version) < (5, 2):
+        raise RuntimeError('This installer requires Slicer 5.2 or newer.')
     manifest = verified_manifest(bundle)
     runtime = select_runtime(bundle, manifest, system, machine)
     slicer_version = '%d.%d' % tuple(version)
@@ -111,8 +111,8 @@ def install_in_slicer(bundle):
     if not hasattr(slicer, 'app'):
         raise RuntimeError('Run install.py inside 3D Slicer, using --python-script or the Python console.')
     version = (slicer.app.majorVersion, slicer.app.minorVersion)
-    if version[0] != 5 or version[1] < 2:
-        raise RuntimeError('This installer targets Slicer 5.2+ within the 5.x series.')
+    if tuple(version) < (5, 2):
+        raise RuntimeError('This installer requires Slicer 5.2 or newer.')
     manifest = verified_manifest(bundle)
     runtime = select_runtime(bundle, manifest)
     # ZIP extraction tools do not consistently preserve executable permissions.

@@ -34,8 +34,7 @@ __device__ void d_tensor_matrix(const GPUDarParams& P, const double* state, T* m
     {
     for (int b = 0; b < 3; ++b)
       {
-      T v = 0;
-      for (int c = 0; c < 3; ++c) { v += scaled[a*3+c]*R[b*3+c]; }
+      const T v = scaled[a*3]*R[b*3] + (scaled[a*3+1]*R[b*3+1] + scaled[a*3+2]*R[b*3+2]);
       matrix[a*3+b] = v*T(1e-6);
       }
     }
@@ -52,7 +51,7 @@ __device__ T d_tensor_signal(const GPUDarParams& P, const T* matrices, const dou
     const T* D = matrices + t*9;
     const T du0 = D[0]*u[0]+D[1]*u[1]+D[2]*u[2];
     const T du1 = D[3]*u[0]+D[4]*u[1]+D[5]*u[2];
-    const T du2 = D[6]*u[0]+D[7]*u[1]+D[8]*u[2];
+    const T du2 = D[6]*u[0]+(D[7]*u[1]+D[8]*u[2]);
     const T value = exp(-(T)b*(u[0]*du0+u[1]*du1+u[2]*du2));
     // The original 1T free-water model does not apply a tensor mixture weight.
     signal += value * (P.num_tensors == 1 && P.free_water ? T(1) : T(P.w1));

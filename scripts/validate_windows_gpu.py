@@ -10,17 +10,20 @@ parser.add_argument('--slicer', type=Path, required=True)
 parser.add_argument('--binary', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--models', nargs='+', help='e.g. simple1 simple2; default all 12')
+parser.add_argument('--real-seeds', type=int, default=0, help='Use this many deterministic whole-brain seed voxels instead of synthetic inputs')
 args = parser.parse_args()
 repository = Path(__file__).resolve().parents[1]
 if args.output.exists():
     parser.error('--output must be a new directory')
+if args.real_seeds < 0:
+    parser.error('--real-seeds must be nonnegative')
 args.output.mkdir(parents=True)
 env = dict(os.environ, UKF_TEST_REPOSITORY=str(repository),
            UKF_NATIVE_BINARY=str(args.binary.resolve(strict=True)),
            UKF_NATIVE_OUTPUT=str(args.output.resolve()),
-           UKF_NATIVE_MODELS=','.join(args.models or []))
+           UKF_NATIVE_MODELS=','.join(args.models or []), UKF_NATIVE_REAL_SEEDS=str(args.real_seeds))
 with (args.output/'slicer-validation.log').open('w', encoding='utf-8') as log:
-    run = subprocess.run([str(args.slicer.resolve(strict=True)), '--no-splash', '--no-main-window',
+    run = subprocess.run([str(args.slicer.resolve(strict=True)), '--testing', '--no-splash', '--no-main-window',
                           '--python-script', str(repository/'slicer-extension/UKFGPU/Testing/native_acceptance.py')],
                          stdout=log, stderr=subprocess.STDOUT, env=env, timeout=1200)
 print('Results:', args.output/'acceptance.json')

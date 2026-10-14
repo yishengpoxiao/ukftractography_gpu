@@ -1,6 +1,6 @@
-# Offline installer for Slicer 5.x
+# Offline installer for 3D Slicer
 
-The portable installer detects the running Slicer version and the operating system. It generates the corresponding `lib/Slicer-<major.minor>/qt-scripted-modules` layout and installs through Slicer's Extensions Manager. It targets Slicer 5.2 and later in the 5.x series. Automatic layout selection does not guarantee compatibility with every future Slicer API.
+The portable installer detects the running Slicer version and the operating system. It generates the corresponding `lib/Slicer-<major.minor>/qt-scripted-modules` layout and installs through Slicer's Extensions Manager. It requires Slicer 5.2 or newer and imposes no major-version upper bound. Automatic layout selection does not guarantee compatibility with every future Slicer API.
 
 ## Install
 
@@ -34,9 +34,9 @@ The installer verifies file checksums, checks the platform and Linux glibc requi
 | NVIDIA graphics driver | System prerequisite; cannot be installed privately as an extension dependency |
 | Linux glibc and dynamic loader | System prerequisites; checked against the actual packaged binaries |
 
-The installer supports native **Linux x86_64** and **Windows x86_64** runtime selection. A bundle contains only the platforms listed in its dated manifest. If a native Windows runtime is absent, Windows installation stops with an explicit message. A source ZIP does not supply a native Windows executable. The currently delivered binary is Linux only; Windows native builds and execution remain unverified. macOS and ARM CUDA backends are unavailable.
+The installer supports native **Linux x86_64** and **Windows x86_64** runtime selection. A bundle contains only the platforms listed in its dated manifest. If a native Windows runtime is absent, Windows installation stops with an explicit message. A source ZIP does not supply a native Windows executable. See the latest release and validation report for available native runtimes. Windows GPU execution requires a separate hardware acceptance run. macOS and ARM CUDA backends are unavailable.
 
-The portable Linux release is compiled with native CUDA code for compute capabilities 7.5, 8.0, 8.6, 8.9 and 9.0, plus baseline compute_75 PTX for driver JIT on compatible newer GPUs. Only RTX 4090 execution is currently validated. PTX JIT requires a driver that understands the toolkit's PTX version; a CUDA-family minimum driver alone does not guarantee JIT support. CPU hardware must support the AVX instructions used by the current Linux backend. Driver or hardware problems are reported and do not trigger system driver changes.
+Build scripts select the GPU architectures supported by the chosen CUDA compiler and include baseline PTX. There is no fixed Toolkit-version check. A distributed runtime still needs a compatible NVIDIA driver; its bundled CUDA runtime must match the native backend. Older drivers may require a build with an older compatible Toolkit. Only RTX 4090 execution is currently validated. PTX JIT requires a driver that understands the toolkit's PTX version; a CUDA-family minimum driver alone does not guarantee JIT support. CPU hardware must support the AVX instructions used by the current Linux backend. Driver or hardware problems are reported and do not trigger system driver changes.
 
 See [NVIDIA CUDA compatibility](https://docs.nvidia.com/deploy/cuda-compatibility/) and [Slicer's installation API](https://slicer.readthedocs.io/en/latest/developer_guide/script_repository/gui.html).
 

@@ -4,6 +4,9 @@ import sys
 from pathlib import Path
 import shutil
 import tempfile
+import time
+import numpy as np
+from vtk.util.numpy_support import vtk_to_numpy, numpy_to_vtk
 
 import ctk
 import qt
@@ -16,7 +19,7 @@ from slicer.ScriptedLoadableModule import (
 sys.path.insert(0, str(Path(__file__).parent))
 from UKFGPULib import (MODELS, NUMERIC_OPTIONS, RECORD_OPTIONS, command,
                        process_environment, default_executable, check_result,
-                       PRESETS, preset_values, model_options)
+                       PRESETS, preset_values, model_options, TrackingProgress)
 
 
 PARAMETER_HELP = {
@@ -74,6 +77,12 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         self.logic = UKFGPULogic()
         self.logic.onLog = self.appendLog
         self.logic.onFinished = self.onFinished
+        self.logic.onProgress = self.onProgress
+        self.updatingParameters = False
+        self.sceneRestoring = False
+        self.cleanedUp = False
+        self.startedAt = None
+        self.pendingGpuPci = []
         panel = qt.QWidget()
         form = qt.QFormLayout(panel)
         self.layout.addWidget(panel)
@@ -125,6 +134,17 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         gpuHelp = "Choose the single GPU used for tracking. Each entry shows CUDA index, model, total memory and PCI bus address, so identical cards can be distinguished. If discovery fails, enter a CUDA index manually."
         self.addRow(form, "GPU device", gpuRow, gpuHelp)
         self.device.setToolTip(gpuHelp)
+        self.recommendGpuButton = qt.QPushButton("Recommend GPU")
+        self.recommendGpuButton.setToolTip("Select the detected GPU with the most free memory. Values are a snapshot; other applications may allocate memory later.")
+        self.recommendGpuButton.connect("clicked()", self.recommendGpu)
+        gpuRow.addWidget(self.recommendGpuButton)
+        self.multiGpu = qt.QCheckBox("Use selected GPUs together")
+        self.addRow(form, "Multiple GPUs", self.multiGpu, "Enable to distribute seeds across the checked GPUs below. Each device holds its own input copy; memory is not pooled.")
+        self.gpuList = qt.QListWidget()
+        self.gpuList.maximumHeight = 140
+        self.gpuList.visible = False
+        form.addRow(self.gpuList)
+        self.multiGpu.connect("toggled(bool)", self.updateGpuMode)
         self.gpuStatus = qt.QLabel()
         self.gpuStatus.wordWrap = True
         form.addRow(self.gpuStatus)
@@ -162,6 +182,12 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
             control = qt.QDoubleSpinBox()
             control.setDecimals(6)
             control.setRange(0, 1000000)
+            if name in ('stepLength', 'recordLength'):
+                control.setMinimum(0.000001)
+            if name in ('stoppingFA', 'stoppingThreshold', 'seedingThreshold'):
+                control.setMaximum(1)
+            if name.endswith('BranchingAngle'):
+                control.setMaximum(90)
             if name in ("seedsPerVoxel", "numThreads", "maxHalfFiberLength"):
                 control.setDecimals(0)
                 control.setMinimum(1)
@@ -185,8 +211,45 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         row.addWidget(self.runButton)
         row.addWidget(self.cancelButton)
         self.layout.addLayout(row)
+        self.progressBar = qt.QProgressBar()
+        self.progressBar.setRange(0, 100)
+        self.progressBar.setValue(0)
+        self.layout.addWidget(self.progressBar)
         self.status = qt.QLabel("Ready")
         self.layout.addWidget(self.status)
+        self.elapsed = qt.QLabel()
+        self.layout.addWidget(self.elapsed)
+        self.elapsedTimer = qt.QTimer(self.parent)
+        self.elapsedTimer.connect('timeout()', self.updateElapsed)
+        displayPanel = ctk.ctkCollapsibleButton()
+        displayPanel.text = 'Fiber display'
+        self.layout.addWidget(displayPanel)
+        displayForm = qt.QFormLayout(displayPanel)
+        self.result = self.selector(['vtkMRMLModelNode'], optional=True)
+        self.addRow(displayForm, 'Fiber result', self.result, 'Select the result whose display you want to change.')
+        self.showFibers = qt.QCheckBox('Visible')
+        self.showFibers.checked = True
+        self.addRow(displayForm, 'Visibility', self.showFibers, 'Show or hide the selected fibers.')
+        self.opacity = qt.QDoubleSpinBox()
+        self.opacity.setRange(0, 1)
+        self.opacity.setSingleStep(0.05)
+        self.opacity.value = 1
+        self.addRow(displayForm, 'Opacity', self.opacity, '0 is transparent; 1 is opaque.')
+        self.lineWidth = qt.QDoubleSpinBox()
+        self.lineWidth.setRange(0.1, 10)
+        self.lineWidth.value = 1
+        self.addRow(displayForm, 'Line width', self.lineWidth, 'Width of line representations; tube radius is controlled by SlicerDMRI.')
+        self.colorMode = qt.QComboBox()
+        self.colorMode.addItems(['Solid', 'Direction', 'FA', 'Length'])
+        self.addRow(displayForm, 'Color by', self.colorMode, 'Direction: absolute RAS tangent RGB. FA: recorded FA1 values (requires RecordFA). Length: whole-fiber length in mm.')
+        self.fiberColor = ctk.ctkColorPickerButton()
+        self.fiberColor.color = qt.QColor.fromRgbF(1, 0.8, 0.2)
+        self.addRow(displayForm, 'Solid color', self.fiberColor, 'Color used in Solid mode.')
+        for control, signal in ((self.result, 'currentNodeChanged(vtkMRMLNode*)'),
+                                (self.showFibers, 'toggled(bool)'), (self.opacity, 'valueChanged(double)'),
+                                (self.lineWidth, 'valueChanged(double)'), (self.colorMode, 'currentIndexChanged(int)'),
+                                (self.fiberColor, 'colorChanged(QColor)')):
+            control.connect(signal, self.applyDisplay)
         self.log = qt.QPlainTextEdit()
         self.log.readOnly = True
         self.log.setMaximumBlockCount(4000)
@@ -196,6 +259,25 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         self.seeds.connect("currentNodeChanged(vtkMRMLNode*)", self.updateModelOptions)
         self.backend.connect("editingFinished()", self.refreshGpu)
         self.updateModelOptions()
+        self.parameterNode = None
+        self.parameterObserver = None
+        self.sceneObservers = [slicer.mrmlScene.AddObserver(slicer.vtkMRMLScene.StartCloseEvent, self.onSceneClosing),
+                               slicer.mrmlScene.AddObserver(slicer.vtkMRMLScene.EndCloseEvent, self.onSceneClosed),
+                               slicer.mrmlScene.AddObserver(slicer.vtkMRMLScene.StartImportEvent, self.onSceneImporting),
+                               slicer.mrmlScene.AddObserver(slicer.vtkMRMLScene.EndImportEvent, self.onSceneImported)]
+        self.initializeParameters()
+        for control, signal in [(self.model, 'currentIndexChanged(int)'), (self.precision, 'currentIndexChanged(int)'),
+                                (self.allGpus, 'toggled(bool)'), (self.multiGpu, 'toggled(bool)'),
+                                (self.device, 'currentIndexChanged(int)'), (self.gpuList, 'itemChanged(QListWidgetItem*)'),
+                                (self.fiberName, 'textChanged(QString)'), (self.seedLabels, 'textChanged(QString)'),
+                                (self.preset, 'currentIndexChanged(int)'), (self.backend, 'editingFinished()'),
+                                *[(c, 'valueChanged(double)') for c in self.parameters.values()],
+                                *[(c, 'toggled(bool)') for c in self.records.values()],
+                                *[(c, 'currentNodeChanged(vtkMRMLNode*)') for c in (self.dwi, self.mask, self.seeds, self.result)],
+                                (self.showFibers, 'toggled(bool)'), (self.opacity, 'valueChanged(double)'),
+                                (self.lineWidth, 'valueChanged(double)'), (self.colorMode, 'currentIndexChanged(int)'),
+                                (self.fiberColor, 'colorChanged(QColor)')]:
+            control.connect(signal, self.saveParameters)
         qt.QTimer.singleShot(0, self.refreshGpu)
 
     def addRow(self, form, title, field, help_text):
@@ -233,6 +315,146 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         self.updateModelOptions()
         self.status.text = "Applied preset: " + self.preset.currentText
 
+    def initializeParameters(self, *unused):
+        if self.cleanedUp:
+            return
+        self.parameterNode = self.logic.getParameterNode()
+        self.parameterObserver = self.parameterNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.restoreParameters)
+        if self.parameterNode.GetParameter('Settings'):
+            self.restoreParameters()
+        else:
+            self.sceneRestoring = False
+            self.saveParameters()
+
+    def onSceneClosing(self, *unused):
+        self.sceneRestoring = True
+        self.logic.cancel()
+        if self.parameterNode and self.parameterObserver:
+            self.parameterNode.RemoveObserver(self.parameterObserver)
+        self.parameterNode = None
+        self.parameterObserver = None
+
+    def onSceneClosed(self, *unused):
+        qt.QTimer.singleShot(0, self.initializeParameters)
+
+    def onSceneImporting(self, *unused):
+        self.sceneRestoring = True
+
+    def onSceneImported(self, *unused):
+        qt.QTimer.singleShot(0, self.restoreParameters)
+
+    def saveParameters(self, *unused):
+        if self.updatingParameters or self.sceneRestoring or slicer.mrmlScene.IsBatchProcessing() or self.parameterNode is None:
+            return
+        self.updatingParameters = True
+        try:
+            checked = self.checkedGpuPci()
+            selected = self.gpuDevices.get(self.gpuDevice(), {}).get('pci_bus') if self.gpuDetected else None
+            settings = dict(version=1, model=self.model.currentText, precision=self.precision.currentIndex,
+                            backend=self.backend.text, fiberName=self.fiberName.text, seedLabels=self.seedLabels.text,
+                            preset=self.preset.currentText, allGpus=self.allGpus.checked, multiGpu=self.multiGpu.checked,
+                            gpuPci=checked if self.multiGpu.checked else ([selected] if selected else self.pendingGpuPci),
+                            parameters={k: c.value for k, c in self.parameters.items()},
+                            records={k: c.checked for k, c in self.records.items()},
+                            visible=self.showFibers.checked, opacity=self.opacity.value, lineWidth=self.lineWidth.value,
+                            colorMode=self.colorMode.currentText,
+                            color=[self.fiberColor.color.redF(), self.fiberColor.color.greenF(), self.fiberColor.color.blueF()])
+            token = self.parameterNode.StartModify()
+            try:
+                self.parameterNode.SetParameter('Settings', json.dumps(settings))
+                for name in ('dwi', 'mask', 'seeds', 'result'):
+                    node = getattr(self, name).currentNode()
+                    self.parameterNode.SetNodeReferenceID(name, node.GetID() if node else None)
+            finally:
+                self.parameterNode.EndModify(token)
+        finally:
+            self.updatingParameters = False
+
+    def restoreParameters(self, *unused):
+        if self.cleanedUp or self.updatingParameters or slicer.mrmlScene.IsBatchProcessing() or self.parameterNode is None or not self.parameterNode.GetParameter('Settings'):
+            return
+        settings = json.loads(self.parameterNode.GetParameter('Settings'))
+        if settings['version'] != 1:
+            raise ValueError('Unsupported UKFGPU scene settings format.')
+        visibility_changed = self.allGpus.checked != settings['allGpus']
+        self.updatingParameters = True
+        try:
+            for name in ('dwi', 'mask', 'seeds', 'result'):
+                getattr(self, name).setCurrentNode(self.parameterNode.GetNodeReference(name))
+            self.model.currentIndex = list(MODELS).index(settings['model'])
+            self.precision.currentIndex = settings['precision']
+            if os.path.isfile(settings['backend']):
+                self.backend.text = settings['backend']
+            self.fiberName.text = settings['fiberName']
+            self.seedLabels.text = settings['seedLabels']
+            self.preset.currentIndex = list(PRESETS).index(settings['preset'])
+            self.allGpus.checked = settings['allGpus']
+            self.multiGpu.checked = settings['multiGpu']
+            self.pendingGpuPci = settings['gpuPci']
+            for name, value in settings['parameters'].items():
+                self.parameters[name].value = value
+            for name, value in settings['records'].items():
+                self.records[name].checked = value
+            self.showFibers.checked = settings['visible']
+            self.opacity.value = settings['opacity']
+            self.lineWidth.value = settings['lineWidth']
+            self.colorMode.currentIndex = self.colorMode.findText(settings['colorMode'])
+            self.fiberColor.color = qt.QColor.fromRgbF(*settings['color'])
+            self.updateModelOptions()
+            self.updateGpuMode()
+        finally:
+            self.updatingParameters = False
+            self.sceneRestoring = False
+        self.applyDisplay()
+        if self.gpuProbe is None and (visibility_changed or self.pendingGpuPci):
+            self.refreshGpu()
+
+    def checkedGpuPci(self):
+        return [self.gpuList.item(i).data(qt.Qt.UserRole) for i in range(self.gpuList.count)
+                if self.gpuList.item(i).checkState() == qt.Qt.Checked]
+
+    def updateGpuMode(self, *unused):
+        self.gpuList.visible = self.multiGpu.checked
+        self.device.enabled = self.gpuAvailable and not self.multiGpu.checked and self.gpuProbe is None and self.logic.process is None
+        if self.multiGpu.checked and self.gpuDetected and not self.checkedGpuPci():
+            selected = self.gpuDevices[self.gpuDevice()]['pci_bus']
+            for i in range(self.gpuList.count):
+                if self.gpuList.item(i).data(qt.Qt.UserRole) == selected:
+                    self.gpuList.item(i).setCheckState(qt.Qt.Checked)
+
+    def recommendGpu(self):
+        available = [d for d in self.gpuDevices.values() if d.get('free_memory') is not None]
+        if available:
+            best = max(available, key=lambda d: d['free_memory'])
+            self.device.currentIndex = self.device.findData(best['index'])
+            for i in range(self.gpuList.count):
+                item = self.gpuList.item(i)
+                item.setCheckState(qt.Qt.Checked if item.data(qt.Qt.UserRole) == best['pci_bus'] else qt.Qt.Unchecked)
+
+    def updateElapsed(self):
+        if self.startedAt is not None:
+            self.elapsed.text = 'Elapsed: %.1f s' % (time.monotonic() - self.startedAt)
+
+    def onProgress(self, progress):
+        tracking = progress['stage'] == 'GPU tracking' and progress['total'] > 0
+        self.progressBar.setRange(0, progress['total'] if tracking else 0)
+        if tracking:
+            self.progressBar.value = progress['completed']
+            self.progressBar.format = '%v / %m half-tracks completed'
+        self.status.text = progress['stage'] + (' (pass %d)' % progress['pass_number'] if progress.get('pass_number', 0) > 1 else '')
+
+    def applyDisplay(self, *unused):
+        if self.updatingParameters:
+            return
+        node = self.result.currentNode()
+        if node is not None:
+            try:
+                color = self.fiberColor.color
+                self.logic.updateDisplay(node, self.showFibers.checked, self.opacity.value, self.lineWidth.value,
+                                         self.colorMode.currentText, (color.redF(), color.greenF(), color.blueF()))
+            except ValueError as exc:
+                self.status.text = str(exc)
+
     def gpuDevice(self):
         if self.gpuDetected:
             return int(self.device.itemData(self.device.currentIndex))
@@ -242,12 +464,15 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         return device
 
     def refreshGpu(self, *unused):
-        if self.gpuProbe is not None or self.logic.process is not None:
+        if self.updatingParameters or self.gpuProbe is not None or self.logic.process is not None:
             return
         self.gpuStatus.text = "Detecting CUDA GPUs..."
         self.refreshGpuButton.enabled = False
         self.allGpus.enabled = False
         self.device.enabled = False
+        self.multiGpu.enabled = False
+        self.gpuList.enabled = False
+        self.recommendGpuButton.enabled = False
         self.runButton.enabled = False
         self.gpuProbe = qt.QProcess(self.parent)
         environment = qt.QProcessEnvironment()
@@ -296,7 +521,13 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
             except ValueError:
                 selected = 0
         selected_pci = self.gpuDevices.get(selected, {}).get('pci_bus')
+        checked = self.pendingGpuPci or self.checkedGpuPci() or ([selected_pci] if selected_pci else [])
+        if self.pendingGpuPci:
+            selected_pci = self.pendingGpuPci[0]
+        self.pendingGpuPci = []
+        self.updatingParameters = True
         self.device.clear()
+        self.gpuList.clear()
         self.gpuDevices = {device['index']: device for device in devices or []}
         self.gpuDetected = devices is not None and bool(devices)
         self.gpuAvailable = devices is None or bool(devices)
@@ -308,7 +539,14 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
             self.gpuStatus.text = "No CUDA GPU is visible. Check the driver and GPU visibility mode, then Refresh."
         else:
             for device in devices:
-                self.device.addItem("CUDA %d: %s (%.1f GiB) | PCI %s" % (device['index'], device['name'], device['memory']/2**30, device['pci_bus']), device['index'])
+                free = '%.1f GiB free' % (device['free_memory']/2**30) if device.get('free_memory') is not None else 'free memory unavailable'
+                title = "CUDA %d: %s (%s / %.1f GiB) | PCI %s" % (device['index'], device['name'], free, device['memory']/2**30, device['pci_bus'])
+                self.device.addItem(title, device['index'])
+                item = qt.QListWidgetItem(title)
+                item.setData(qt.Qt.UserRole, device['pci_bus'])
+                item.setFlags(item.flags() | qt.Qt.ItemIsUserCheckable)
+                item.setCheckState(qt.Qt.Checked if device['pci_bus'] in checked else qt.Qt.Unchecked)
+                self.gpuList.addItem(item)
             index = next((i for i, device in enumerate(devices) if device['pci_bus'] == selected_pci), self.device.findData(selected))
             self.device.currentIndex = max(0, index)
             scope = "all accessible GPUs" if self.allGpus.checked else "startup CUDA visibility"
@@ -316,6 +554,12 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         self.device.enabled = self.gpuAvailable
         self.refreshGpuButton.enabled = True
         self.allGpus.enabled = True
+        self.multiGpu.enabled = self.gpuAvailable
+        self.gpuList.enabled = self.gpuAvailable
+        self.recommendGpuButton.enabled = any(d.get('free_memory') is not None for d in devices or [])
+        self.updateGpuMode()
+        self.updatingParameters = False
+        self.saveParameters()
         self.runButton.enabled = self.gpuAvailable and self.logic.process is None
 
     def selector(self, types, optional=False):
@@ -347,19 +591,35 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
             options[name] = int(options[name])
         options.update({name: control.checked for name, control in self.records.items() if control.enabled})
         try:
+            selected = [d for d in self.gpuDevices.values() if d['pci_bus'] in self.checkedGpuPci()] if self.multiGpu.checked else []
+            if self.multiGpu.checked and not selected:
+                raise ValueError('Check at least one GPU for multi-GPU tracking.')
+            self.startedAt = time.monotonic()
+            self.elapsedTimer.start(1000)
+            self.runButton.enabled = False
+            self.onProgress(dict(stage='Preparing inputs', completed=0, total=0))
             self.logic.start(self.backend.text, self.dwi.currentNode(), self.mask.currentNode(),
                              self.model.currentText, self.precision.currentIndex,
-                             self.gpuDevice(), self.seeds.currentNode(), self.seedLabels.text, options,
-                             result_name=self.fiberName.text, all_gpus=self.allGpus.checked)
-            self.appendLog("Selected GPU: " + self.device.currentText + "\n")
+                             -1 if self.multiGpu.checked else self.gpuDevice(), self.seeds.currentNode(), self.seedLabels.text, options,
+                             result_name=self.fiberName.text, all_gpus=self.allGpus.checked,
+                             gpu_uuids=[d['uuid'] for d in selected] if selected else None)
+            self.appendLog("Selected GPU(s): " + (', '.join(d['pci_bus'] for d in selected) if selected else self.device.currentText) + "\n")
             self.runButton.enabled = False
             self.refreshGpuButton.enabled = False
             self.device.enabled = False
             self.allGpus.enabled = False
+            self.multiGpu.enabled = False
+            self.gpuList.enabled = False
+            self.recommendGpuButton.enabled = False
             self.applyPresetButton.enabled = False
             self.cancelButton.enabled = True
             self.status.text = "Tracking on " + self.device.currentText
         except Exception as exc:
+            self.elapsedTimer.stop()
+            self.runButton.enabled = self.gpuAvailable and self.gpuProbe is None
+            self.progressBar.setRange(0, 100)
+            self.progressBar.value = 0
+            self.status.text = str(exc)
             slicer.util.errorDisplay(str(exc))
 
     def onFinished(self, node, error):
@@ -367,13 +627,32 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         self.refreshGpuButton.enabled = True
         self.device.enabled = self.gpuAvailable
         self.allGpus.enabled = True
+        self.multiGpu.enabled = self.gpuAvailable
+        self.gpuList.enabled = self.gpuAvailable
+        self.recommendGpuButton.enabled = any(d.get('free_memory') is not None for d in self.gpuDevices.values())
+        self.updateGpuMode()
         self.applyPresetButton.enabled = True
         self.cancelButton.enabled = False
         self.status.text = error or "Added to scene: " + node.GetName() + ". Use Save to keep fibers."
+        self.elapsedTimer.stop()
+        self.updateElapsed()
+        self.progressBar.setRange(0, 100)
+        self.progressBar.value = 0 if error else 100
+        self.progressBar.format = 'Cancelled' if error == 'Cancelled' else ('Failed' if error else 'Completed')
+        if node:
+            self.result.setCurrentNode(node)
+            self.applyDisplay()
+            self.saveParameters()
         if error and error != "Cancelled":
             slicer.util.errorDisplay(error)
 
     def cleanup(self):
+        self.cleanedUp = True
+        self.elapsedTimer.stop()
+        if self.parameterNode and self.parameterObserver:
+            self.parameterNode.RemoveObserver(self.parameterObserver)
+        for observer in self.sceneObservers:
+            slicer.mrmlScene.RemoveObserver(observer)
         self.gpuTimer.stop()
         if self.gpuProbe is not None:
             self.gpuProbe.kill()
@@ -381,6 +660,7 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
             self.gpuProbe = None
         self.logic.onLog = None
         self.logic.onFinished = None
+        self.logic.onProgress = None
         self.logic.cancel()
 
 
@@ -391,11 +671,105 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
         self.jobDirectory = None
         self.onLog = None
         self.onFinished = None
+        self.onProgress = None
         self.lastLog = ""
         self.cancelled = False
 
+    @staticmethod
+    def validateInputs(dwi, mask, seeds, labels):
+        image = dwi.GetImageData()
+        if image is None or image.GetNumberOfPoints() == 0:
+            raise ValueError('DWI has no image data.')
+        if image.GetNumberOfScalarComponents() != dwi.GetNumberOfGradients():
+            raise ValueError('DWI component count does not match gradient metadata.')
+        gradients = vtk_to_numpy(dwi.GetDiffusionGradients())
+        bvalues = vtk_to_numpy(dwi.GetBValues())
+        if not np.isfinite(gradients).all() or not np.isfinite(bvalues).all() or np.any(bvalues < 0) or not np.any(bvalues > 0):
+            raise ValueError('DWI gradients/b-values must be finite, with nonnegative b-values and at least one diffusion-weighted measurement.')
+        reference = vtk.vtkMatrix4x4()
+        dwi.GetIJKToRASMatrix(reference)
+        for name, node in (('Brain mask', mask), ('Seed labelmap', seeds)):
+            if node is None:
+                continue
+            data = node.GetImageData()
+            if data is None or data.GetDimensions() != image.GetDimensions() or data.GetNumberOfScalarComponents() != 1:
+                raise ValueError(name + ' must be a scalar volume with the same dimensions as the DWI.')
+            matrix = vtk.vtkMatrix4x4()
+            node.GetIJKToRASMatrix(matrix)
+            if any(abs(matrix.GetElement(r, c)-reference.GetElement(r, c)) > 1e-6 for r in range(4) for c in range(4)):
+                raise ValueError(name + ' spacing, origin or directions differ from the DWI. Resample the labelmap to the DWI geometry first.')
+            values = slicer.util.arrayFromVolume(node)
+            if not np.isfinite(values).all() or np.any(values < 0):
+                raise ValueError(name + ' must contain finite, nonnegative values.')
+            if name == 'Seed labelmap' and np.any(values != np.floor(values)):
+                raise ValueError('Seed labels must be integers.')
+        mask_values = slicer.util.arrayFromVolume(mask)
+        if not np.any(mask_values > 0):
+            raise ValueError('Brain mask is empty.')
+        if seeds is not None:
+            selected = [int(value.strip()) for value in labels.split(',')]
+            if any(value < 0 for value in selected):
+                raise ValueError('Seed labels must be nonnegative integers.')
+            if not np.any(np.isin(slicer.util.arrayFromVolume(seeds), selected) & (mask_values > 0)):
+                raise ValueError('The selected seed labels contain no voxels inside the brain mask.')
+
+    @staticmethod
+    def updateDisplay(node, visible, opacity, width, mode, color):
+        poly = node.GetPolyData()
+        if poly is None or poly.GetPoints() is None:
+            raise ValueError('Selected result has no fiber geometry.')
+        array_name = {'Direction': 'UKFGPU.Direction', 'Length': 'UKFGPU.Length', 'FA': 'FA1'}.get(mode)
+        if mode == 'FA' and poly.GetPointData().GetArray(array_name) is None:
+            raise ValueError('FA coloring requires FA1 data. Enable recordFA when tracking a tensor model.')
+        if mode in ('Direction', 'Length') and poly.GetPointData().GetArray(array_name) is None:
+            points = vtk_to_numpy(poly.GetPoints().GetData()).astype(float)
+            cells = vtk_to_numpy(poly.GetLines().GetData())
+            values = np.zeros((len(points), 3), dtype=np.uint8) if mode == 'Direction' else np.zeros(len(points))
+            offset = 0
+            while offset < len(cells):
+                count = int(cells[offset])
+                ids = cells[offset+1:offset+count+1]
+                if count > 1:
+                    differences = np.diff(points[ids], axis=0)
+                    if mode == 'Length':
+                        values[ids] = np.linalg.norm(differences, axis=1).sum()
+                    else:
+                        tangents = np.vstack((differences, differences[-1]))
+                        lengths = np.linalg.norm(tangents, axis=1, keepdims=True)
+                        normalized = np.divide(tangents, lengths, out=np.zeros_like(tangents), where=lengths > 0)
+                        values[ids] = np.rint(np.abs(normalized)*255).astype(np.uint8)
+                offset += count + 1
+            array = numpy_to_vtk(values, deep=True)
+            array.SetName(array_name)
+            poly.GetPointData().AddArray(array)
+        active = [i for i in range(node.GetNumberOfDisplayNodes()) if node.GetNthDisplayNode(i).GetVisibility()]
+        if active:
+            node.SetAttribute('UKFGPU.VisibleDisplays', json.dumps(active))
+        else:
+            active = json.loads(node.GetAttribute('UKFGPU.VisibleDisplays') or '[0]')
+        for index in range(node.GetNumberOfDisplayNodes()):
+            display = node.GetNthDisplayNode(index)
+            display.SetVisibility(visible and index in active)
+            display.SetOpacity(opacity)
+            display.SetLineWidth(width)
+            if hasattr(display, 'SetColorModeToSolid'):
+                if mode == 'Solid':
+                    display.SetColorModeToSolid()
+                else:
+                    display.SetColorModeToScalarData()
+            display.SetScalarVisibility(mode != 'Solid')
+            display.SetColor(*color)
+            if array_name:
+                display.SetActiveScalarName(array_name)
+                if mode == 'Direction':
+                    display.SetScalarRangeFlag(slicer.vtkMRMLDisplayNode.UseDirectMapping)
+                else:
+                    display.SetScalarRangeFlag(slicer.vtkMRMLDisplayNode.UseDataScalarRange)
+                    display.SetAndObserveColorNodeID('vtkMRMLColorTableNodeRainbow')
+        node.SetAttribute('UKFGPU.ColorMode', mode)
+
     def start(self, executable, dwi, mask, model="Simple2T", precision=1,
-              device=0, seeds=None, seed_labels="1", options=None, result_name="", all_gpus=False):
+              device=0, seeds=None, seed_labels="1", options=None, result_name="", all_gpus=False, gpu_uuids=None):
         if self.process is not None:
             raise RuntimeError("Tracking is already running.")
         if not os.path.isfile(executable) or not os.access(executable, os.X_OK):
@@ -410,6 +784,9 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
         for node in (dwi, mask, seeds):
             if node and node.GetParentTransformNode():
                 raise ValueError("Inputs with parent transforms are not supported; use aligned volumes without parent transforms.")
+        self.validateInputs(dwi, mask, seeds, seed_labels)
+        if gpu_uuids and (len(set(gpu_uuids)) != len(gpu_uuids) or any(not value.startswith('GPU-') for value in gpu_uuids)):
+            raise ValueError('Select distinct detected CUDA GPUs.')
         # Build argv before exporting so invalid model/options leave no temporary files.
         args = command(executable, "dwi.nrrd", "mask.nrrd", "fibers.vtk", model,
                        precision, device, "seeds.nrrd" if seeds else None, seed_labels, options)
@@ -420,6 +797,8 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
         self.precision = precision
         self.device = device
         self.gpuVisibility = "All accessible CUDA GPUs" if all_gpus else "Startup CUDA visibility"
+        self.gpuUuids = gpu_uuids or []
+        self.progress = TrackingProgress()
         try:
             for node, name in ((dwi, "dwi"), (mask, "mask"), (seeds, "seeds")):
                 if node and not slicer.util.exportNode(node, os.path.join(self.jobDirectory, name + ".nrrd")):
@@ -428,7 +807,8 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
             self.cancelled = False
             self.process = qt.QProcess(slicer.app)
             environment = qt.QProcessEnvironment()
-            for key, value in process_environment(slicer.util.startupEnvironment(), executable, all_gpus=all_gpus).items():
+            for key, value in process_environment(slicer.util.startupEnvironment(), executable, all_gpus=all_gpus,
+                                                  gpu_uuids=gpu_uuids, progress=True).items():
                 environment.insert(key, value)
             self.process.setProcessEnvironment(environment)
             self.process.setWorkingDirectory(self.jobDirectory)
@@ -446,6 +826,8 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
         self.lastLog += text
         if self.onLog:
             self.onLog(text)
+        if self.onProgress:
+            self.onProgress(self.progress.feed(text))
 
     def processError(self, error):
         if error == qt.QProcess.FailedToStart:
@@ -484,6 +866,7 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
                 node.SetAttribute("UKFGPU.Precision", "FP64" if self.precision == 0 else "Mixed FP32 / FP64")
                 node.SetAttribute("UKFGPU.GPUDevice", str(self.device))
                 node.SetAttribute("UKFGPU.GPUVisibility", self.gpuVisibility)
+                node.SetAttribute("UKFGPU.GPUUUIDs", json.dumps(self.gpuUuids))
                 if slicer.app.layoutManager():
                     slicer.util.resetThreeDViews()
         except Exception as exc:

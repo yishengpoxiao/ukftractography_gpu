@@ -15,6 +15,8 @@
 #include <thread>
 #include <cstring>
 #include <vector>
+#include <sstream>
+#include <cstdlib>
 
 #include "../ISignalData.h"
 #include "../filter_model.h"
@@ -266,6 +268,25 @@ bool run_tractography(ISignalData* signal_data,
     {
     devices.push_back(s.gpu_device);
     }
+  else if (const char* requested = std::getenv("UKF_GPU_DEVICES"))
+    {
+    std::istringstream input(requested);
+    std::string token;
+    try
+      {
+      while (std::getline(input, token, ','))
+        {
+        size_t used = 0;
+        const int device = std::stoi(token, &used);
+        if (used != token.size() || device < 0 || device >= ndev ||
+            std::find(devices.begin(), devices.end(), device) != devices.end())
+          { err = "Invalid or duplicate explicit GPU device"; return false; }
+        devices.push_back(device);
+        }
+      }
+    catch (const std::exception&) { err = "Invalid explicit GPU device list"; return false; }
+    if (devices.empty()) { err = "No explicit GPU devices selected"; return false; }
+    }
   else
     {
     /* keep devices that (a) have at least 2GB free and (b) can hold a
@@ -291,6 +312,7 @@ bool run_tractography(ISignalData* signal_data,
       }
     }
   const int ngpu = (int)devices.size();
+  if (getenv("UKF_GPU_PROGRESS")) { fprintf(stderr, "[UKF_PROGRESS_PASS] %d\n", S); }
   std::vector<std::string> errs(ngpu);
   std::vector<int> ok(ngpu, false);
   std::vector<std::vector<GPUBranchSeed>> events(ngpu);
