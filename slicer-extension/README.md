@@ -2,7 +2,7 @@
 
 This extension connects the CUDA UKF backend to Slicer. It provides 12 experimental models, FP64/mixed precision, GPU selection, tracking and recording options, asynchronous execution, cancellation, logs, and fiber display. It also validates input geometry and seed selection, reports actual tracking counts/elapsed time, saves settings with the scene, and provides direction/FA/length/solid coloring.
 
-Linux integration has been tested with Slicer 5.2.2, 5.6.2 and 5.12.4. Windows native compilation, CPU execution, and actual installation/module loading have been checked in CI with Slicer 5.6.2 and 5.12.4. Windows GPU tracking still needs verification on NVIDIA hardware. See the [Windows build guide](WINDOWS-2026-10-11.md).
+Linux integration has been tested with Slicer 5.2.2, 5.6.2 and 5.12.4. Windows native compilation, CPU execution, and actual installation/module loading have been checked in CI with Slicer 5.6.2 and 5.12.4. Windows GPU tracking still needs verification on NVIDIA hardware. See the [Windows build guide](WINDOWS.md).
 
 ## Install
 
@@ -34,8 +34,6 @@ Hover over parameter labels or controls to see their purpose, units, defaults, m
 
 Available presets are **Standard**, **Quick preview**, and **Fine sampling**. Standard uses model-specific filter noise defaults and standard sampling (0.3/0.9 mm step/record spacing for 1T/2T, 0.15/0.45 mm for 3T). Quick preview limits each half-fiber to 50 mm and uses 1.8 mm recording spacing. Fine sampling halves the standard step and record spacing; it costs more computation and does not guarantee better anatomical accuracy. Apply replaces tracking parameters and clears all recording options, while preserving model, precision, device, inputs and fiber name. Selecting a preset alone does not overwrite manual settings.
 
-GPU discovery and selection validation is documented in [the earlier report](GPU-SELECTION-2026-10-14.md). Scene settings, multiple selected GPUs, progress and display controls are covered by `Testing/slicer_features.py`.
-
 Controls are enabled by model: tensor FA/eigenvalue parameters and tensor recording, FreeWater noise/recording, and NODDI noise/recording. Branching additionally requires a multi-tensor model and a seed labelmap. Switching models clears incompatible record flags and disables unsupported precision selection; Simple3T, Full Tensor, FreeWater and NODDI use FP64. Disabled numeric options are omitted from the backend command.
 
 Models include Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F. Mixed precision lowers Simple1T/2T signal calculations to FP32; sensitive calculations and other models retain FP64. Zero Qm/Ql/Qw/Rs values use backend model defaults. Branching is disabled by default.
@@ -61,7 +59,7 @@ python scripts/package_slicer_extension.py \
   --output /new/package-directory
 ```
 
-The Linux packager copies and strips binaries, removes development RPATHs, and creates a launcher using packaged GPU/CUDA libraries. If the CUDA runtime directory contains a LICENSE file, it is included. Outputs include a source/runtime archive and a version-specific Extensions Manager archive. Repackage and validate when changing Slicer versions. Windows packaging commands are in the [Windows guide](WINDOWS-2026-10-11.md).
+The Linux packager copies and strips binaries, removes development RPATHs, and creates a launcher using packaged GPU/CUDA libraries. If the CUDA runtime directory contains a LICENSE file, it is included. Outputs include a source/runtime archive and a version-specific Extensions Manager archive. Repackage and validate when changing Slicer versions. Windows packaging commands are in the [Windows guide](WINDOWS.md).
 
 An SDK build entry is also provided:
 
@@ -72,18 +70,12 @@ cmake --build /new/UKFGPU-build --target package
 
 The SDK/CMake route remains unverified. Source does not contain a Runtime directory; supply a backend explicitly or build from a packaged source/runtime tree.
 
-## Integration tests
+## Development checks
 
 ```bash
-UKF_TEST_REPOSITORY=/path/to/ukftractography_gpu \
-UKF_TEST_OUTPUT=/new/test-output \
-UKF_GPU_EXECUTABLE=/path/to/Runtime/bin/ukf-gpu \
-CUDA_VISIBLE_DEVICES=0 xvfb-run -a /path/to/Slicer \
-  --no-splash --no-main-window \
-  --additional-module-paths /path/to/UKFGPU-module-directory \
-  --python-script slicer-extension/UKFGPU/Testing/slicer_integration.py
+python -m unittest discover -s slicer-extension/UKFGPU/Testing -p 'test_*.py'
 ```
 
-This historical regression test requires GPU reference outputs from `validation/reference-gpu`, which are not included in the repository. It checks widgets, three models' export/run/import flow, geometry, recorded arrays, cancellation, and failure cleanup. It is not full CPU accuracy acceptance. See the [integration report](VALIDATION-2026-10-11.md).
+These checks cover model settings, tracking controls, platform runtime selection, and installer/packager contracts without requiring Slicer or a GPU. `scripts/verify_slicer_installation.py` additionally installs a compiled portable bundle and verifies registered-module loading in a real Slicer application. Numerical acceptance scripts and reports are maintained separately from the source repository.
 
 This is a modified UKFTractography integration. Original software attribution and redistribution terms are in [LICENSE.txt](../LICENSE.txt).

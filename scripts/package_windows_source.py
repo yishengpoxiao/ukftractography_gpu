@@ -27,6 +27,6 @@ files.update([repository/'LICENSE.txt', repository/'UKFTractography/UKFTractogra
 with zipfile.ZipFile(args.output, 'x', compression=zipfile.ZIP_DEFLATED) as archive:
     for path in sorted(files):
         archive.write(path, source_root+'/'+path.relative_to(repository).as_posix())
-    archive.writestr(source_root+'/README-WINDOWS-2026-10-11.md',
-                     (repository/'slicer-extension/WINDOWS-2026-10-11.md').read_text(encoding='utf-8'))
+    archive.writestr(source_root+'/README-WINDOWS.md',
+                     (repository/'slicer-extension/WINDOWS.md').read_text(encoding='utf-8'))
 print('Windows source/build kit (no native executable):', args.output)
