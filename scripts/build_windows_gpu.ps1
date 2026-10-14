@@ -33,7 +33,7 @@ if (-not $CudaArchitectures) {
     if ($LASTEXITCODE -ne 0) { throw "nvcc could not list supported GPU architectures." }
     $Supported = @($Codes | Where-Object { $_ -match '^sm_(\d+)$' } |
         ForEach-Object { [int]($_ -replace '^sm_', '') } | Sort-Object -Unique)
-    $Selected = @(75, 80, 86, 89, 90, 100, 120 | Where-Object { $Supported -contains $_ })
+    $Selected = @($Supported | Where-Object { $_ -ge 60 })
     if ($Selected.Count -eq 0) { throw "No supported baseline architectures found; set -CudaArchitectures explicitly." }
     $CudaArchitectures = ((@($Selected | ForEach-Object { "$_-real" }) + "$($Selected[0])-virtual") -join ';')
 }
@@ -43,7 +43,7 @@ function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Program failed with exit code $LASTEXITCODE" }
 }
-Invoke-Checked "cmake" @("-S", "$Repository/platforms/superbuild-2026-10-14-r3", "-B", $BuildDirectory,
+Invoke-Checked "cmake" @("-S", "$Repository/platforms/superbuild-2026-10-14-r4", "-B", $BuildDirectory,
     "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_CUDA_COMPILER=$Nvcc",
     "-DUKF_CUDA_ARCHITECTURES=$CudaArchitectures")
 # Child ExternalProject builds also obey this bound.

@@ -12,7 +12,7 @@
 class ISignalData;
 class FilterModel;
 struct UKFSettings;
-class UKFFiber;
+struct UKFFiber;
 class SeedPointInfo;
 struct BranchingSeedAffiliation;
 
