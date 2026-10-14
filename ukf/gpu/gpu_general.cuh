@@ -1,12 +1,21 @@
 // Model-dependent signal and tracking operations. Filter matrices remain FP64.
 #ifndef UKF_GPU_GENERAL_CUH
 #define UKF_GPU_GENERAL_CUH
+#include "gpu_eigen_math.cuh"
 
 template<typename T>
-__device__ void d_rotation(const T* state, T* R)
+__device__ void d_rotation(const GPUDarParams& P, const T* state, T* R)
 {
-  const T ct = cos(state[0]), st = sin(state[0]), cp = cos(state[1]), sp = sin(state[1]);
-  const T cs = cos(state[2]), ss = sin(state[2]);
+  T ct,st,cp,sp,cs,ss;
+  if (P.libm_rotation)
+    {
+    double sine,cosine;
+    d_libm_sincos(state[0],sine,cosine,P.libm_rotation-1); st=sine; ct=cosine;
+    d_libm_sincos(state[1],sine,cosine,P.libm_rotation-1); sp=sine; cp=cosine;
+    d_libm_sincos(state[2],sine,cosine,P.libm_rotation-1); ss=sine; cs=cosine;
+    }
+  else
+    { ct=cos(state[0]); st=sin(state[0]); cp=cos(state[1]); sp=sin(state[1]); cs=cos(state[2]); ss=sin(state[2]); }
   R[0] = ct*cp*cs-sp*ss; R[3] = ct*cs*sp+cp*ss; R[6] = -cs*st;
   R[1] = -cs*sp-ct*cp*ss; R[4] = cp*cs-ct*sp*ss; R[7] = st*ss;
   R[2] = cp*st; R[5] = st*sp; R[8] = ct;
@@ -27,7 +36,7 @@ __device__ void d_tensor_matrix(const GPUDarParams& P, const double* state, T* m
     return;
     }
   T R[9], scaled[9];
-  d_rotation(s,R);
+  d_rotation(P,s,R);
   for (int a = 0; a < 3; ++a)
     { for (int c = 0; c < 3; ++c) { scaled[a*3+c] = R[a*3+c]*l[c]; } }
   for (int a = 0; a < 3; ++a)
@@ -52,14 +61,16 @@ __device__ T d_tensor_signal(const GPUDarParams& P, const T* matrices, const dou
     const T du0 = D[0]*u[0]+D[1]*u[1]+D[2]*u[2];
     const T du1 = D[3]*u[0]+D[4]*u[1]+D[5]*u[2];
     const T du2 = D[6]*u[0]+(D[7]*u[1]+D[8]*u[2]);
-    const T value = exp(-(T)b*(u[0]*du0+u[1]*du1+u[2]*du2));
+    const T exponent = -(T)b*(u[0]*du0+u[1]*du1+u[2]*du2);
+    const T value = P.eigen_exp_packet > 1 ? (T)d_full2fw_exp(P,(double)exponent,t,q) : d_host_exp(P.libm_exp,exponent);
     // The original 1T free-water model does not apply a tensor mixture weight.
     signal += value * (P.num_tensors == 1 && P.free_water ? T(1) : T(P.w1));
     }
   if (P.free_water)
     {
     const T w = fmax((T)state[P.n-1],T(0));
-    const T iso = exp(-(T)b*(u[0]*(T(P.diff_fw)*u[0])+u[1]*(T(P.diff_fw)*u[1])+u[2]*(T(P.diff_fw)*u[2])));
+    const T exponent = -(T)b*(u[0]*(T(P.diff_fw)*u[0])+u[1]*(T(P.diff_fw)*u[1])+u[2]*(T(P.diff_fw)*u[2]));
+    const T iso = P.eigen_exp_packet > 1 ? (T)d_full2fw_exp(P,(double)exponent,2,q) : d_host_exp(P.libm_exp,exponent);
     signal = w*signal+(T(1)-w)*iso;
     }
   return signal;
@@ -142,8 +153,12 @@ __global__ void k_H_general(GPUDarParams P, DevBufs D, int F)
       if (lane == 0)
         { for (int t = 0; t < P.num_tensors; ++t) { d_tensor_matrix(P,state+t*(P.full?6:5),matrices+t*9); } }
       __syncwarp();
-      for (int q = lane; q < P.G; q += 32)
-        { output[q] = output[q+P.G] = d_tensor_signal(P,matrices,state,D.gradients,D.bvalues[q],q); }
+      const int count = P.eigen_exp_packet > 1 ? Q2 : P.G;
+      for (int q = lane; q < count; q += 32)
+        {
+        output[q] = d_tensor_signal(P,matrices,state,D.gradients,D.bvalues[q],q);
+        if (count < Q2) { output[q+P.G] = output[q]; }
+        }
       __syncwarp();
       }
     }
@@ -153,7 +168,7 @@ __device__ void d_extract_tensor(const GPUDarParams& P, const double* state, dou
 {
   if (P.full)
     {
-    double R[9]; d_rotation(state,R);
+    double R[9]; d_rotation(P,state,R);
     for (int c = 0; c < 3; ++c) { direction[c] = R[c*3]; }
     }
   else
@@ -256,8 +271,12 @@ __global__ void k_step_general(GPUDarParams P, DevBufs D, int F, int step)
     if (threadIdx.x == 0)
       { for (int t = 0; t < P.num_tensors; ++t) { d_tensor_matrix(P,st+t*width,matrices+t*9); } }
     __syncthreads();
-    for (int q = threadIdx.x; q < P.G; q += blockDim.x)
-      { memory[q] = memory[q+P.G] = d_tensor_signal(P,matrices,st,D.gradients,D.bvalues[q],q); }
+    const int count = P.eigen_exp_packet > 1 ? Q2 : P.G;
+    for (int q = threadIdx.x; q < count; q += blockDim.x)
+      {
+      memory[q] = d_tensor_signal(P,matrices,st,D.gradients,D.bvalues[q],q);
+      if (count < Q2) { memory[q+P.G] = memory[q]; }
+      }
     __syncthreads();
     }
   if (threadIdx.x != 0) { return; }

@@ -26,6 +26,7 @@
 #include "../utilities.h"
 
 #include "gpu_device_api.h"
+#include "gpu_libm_math.cuh"
 
 namespace ukf
 {
@@ -75,6 +76,36 @@ bool run_tractography(ISignalData* signal_data,
   P.full = s.is_full_model && !s.noddi;
   P.free_water = s.free_water && !s.noddi;
   P.noddi = s.noddi;
+  P.eigen_packet = Eigen::internal::packet_traits<double>::size;
+  P.eigen_gemm_mr = Eigen::internal::gebp_traits<double,double>::mr;
+  P.eigen_solve_panel = std::max(P.eigen_gemm_mr, (int)Eigen::internal::gebp_traits<double,double>::nr);
+#ifdef EIGEN_VECTORIZE_FMA
+  P.eigen_fma = 1;
+#endif
+  // Full2T_FW::H evaluates a whole Eigen array with packet exp and a scalar tail.
+  if (P.full && P.free_water && P.num_tensors == 2 && Eigen::internal::packet_traits<double>::HasExp)
+    {
+    P.eigen_exp_packet = P.eigen_packet;
+    }
+  // Select by actual host results, avoiding a dependency on a libc/OS version.
+  // Volatile prevents constant folding from substituting compiler math results.
+  const volatile double math_samples[] = {-74.211523979052288,20.737142811295371,83.801544053310693,
+    40.726217187925158,-3.14,-1.5707963267948966,-0.855469,-0.126,-0.01,0,1e-9,
+    0.00333988251,0.126,0.855469,1.5707963267948966,2.426265,3.14,11.5,100,500};
+  for (int fused = 0; fused <= 1; ++fused)
+    {
+    bool same_exp = true, same_rotation = true;
+    for (double sample : math_samples)
+      {
+      double sine, cosine;
+      d_libm_sincos(sample,sine,cosine,fused);
+      const double host_sine = std::sin(sample), host_cosine = std::cos(sample);
+      same_rotation = same_rotation && sine == host_sine && cosine == host_cosine;
+      same_exp = same_exp && d_libm_exp(-std::abs(sample),fused) == std::exp(-std::abs(sample));
+      }
+    if (same_exp) { P.libm_exp = fused+1; }
+    if (same_rotation) { P.libm_rotation = fused+1; }
+    }
   P.diff_fw = D_ISO;
   P.branching = branching;
   P.cos_branch_min = cos(s.min_branching_angle*M_PI/180);
@@ -128,7 +159,8 @@ bool run_tractography(ISignalData* signal_data,
   P.gm_thr = s.gm_prob_threshold;
   P.csf_thr = s.csf_prob_threshold;
   P.use_gmcsf = (int)signal_data->isGMCSFProvided();
-  P.use_float = s.gpu_precision == 1 && !P.full && !P.free_water && !P.noddi;
+  // Three-component direction selection amplifies FP32 observation errors.
+  P.use_float = s.gpu_precision == 1 && P.num_tensors <= 2 && !P.full && !P.free_water && !P.noddi;
   P.num_stop_labels = (int)s.stopLabels.size();
   if (P.num_stop_labels > UKF_GPU_MAX_STOP_LABELS)
     {

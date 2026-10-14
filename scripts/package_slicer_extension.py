@@ -83,6 +83,13 @@ exec "$runtime_dir/bin/UKFTractography_gpu" "$@"
         if candidate.is_file():
             shutil.copy2(candidate, runtime/'CUDA-LICENSE.txt')
             break
+    shutil.copytree(args.repository/'third-party', runtime/'Licenses')
+    shutil.copy2(args.repository/'ukf/gpu/gpu_libm_math.cuh', runtime/'Licenses/gpu_libm_math.cuh')
+    (runtime/'Eigen-SOURCE.txt').write_text(
+        'The CUDA Eigen math implementation is distributed under MPL-2.0.\n'
+        'Source: https://github.com/yishengpoxiao/ukftractography_gpu/blob/main/ukf/gpu/gpu_eigen_math.cuh\n'
+        'License: Licenses/Eigen-MPL2.txt\n'
+        'GNU libc CUDA math port: Licenses/gpu_libm_math.cuh (LGPL-2.1-or-later).\n', encoding='utf-8')
 
 
 def package(args):

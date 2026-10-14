@@ -28,6 +28,7 @@
 #include "gpu_device_api.h"
 #include "gpu_qp.cuh"
 #include "gpu_noddi.cuh"
+#include "gpu_eigen_math.cuh"
 
 #define CHK(expr) do { cudaError_t e_ = (expr); if (e_ != cudaSuccess) { err = cudaGetErrorString(e_); return false; } } while (0)
 
@@ -120,8 +121,8 @@ __device__ __forceinline__ T d_frobnorm_colmajor(const T* A, int n)
   return sqrt(s);
 }
 
-/* In-place lower Cholesky. Each entry receives the same ascending-k
- * updates as the serial right-looking LLT; independent entries run in parallel. */
+/* Eigen's small-matrix LLT subtracts a complete dot product once per entry.
+ * Independent entries of the current column are evaluated in parallel. */
 template<int N, typename T>
 __device__ __forceinline__ void d_cholesky_lower(const T* A, T* L, int dimension = N)
 {
@@ -133,114 +134,21 @@ __device__ __forceinline__ void d_cholesky_lower(const T* A, T* L, int dimension
   __syncthreads();
   for (int k = 0; k < n; ++k)
     {
-    if (threadIdx.x == 0) { L[k*n+k] = sqrt(L[k*n+k]); }
+    if (threadIdx.x == 0)
+      {
+      T sum = 0;
+      for (int j = 0; j < k; ++j) { sum += L[k*n+j]*L[k*n+j]; }
+      L[k*n+k] = sqrt(L[k*n+k]-sum);
+      }
     __syncthreads();
     for (int i = k+1+threadIdx.x; i < n; i += blockDim.x)
       {
-      L[i*n+k] /= L[k*n+k];
-      }
-    __syncthreads();
-    for (int e = threadIdx.x; e < n*n; e += blockDim.x)
-      {
-      const int i = e/n, j = e%n;
-      if (i > k && j > k && i >= j) { L[e] -= L[i*n+k] * L[j*n+k]; }
+      T sum = 0;
+      for (int j = 0; j < k; ++j) { sum += L[i*n+j]*L[k*n+j]; }
+      L[i*n+k] = (L[i*n+k]-sum)/L[k*n+k];
       }
     __syncthreads();
     }
-}
-
-/* Block-parallel LU inverse: identical per-element operation order to a
- * serial LU-with-partial-pivoting inverse (rows-parallel elimination,
- * columns-parallel solves). All threads of the block must call it. */
-template<int N, typename T>
-__device__ __forceinline__ void d_block_inverse( const T* Ain, T* Ainv,
-                                T* lu, int* perm, int* pivslot, int dimension = N)
-{
-  const int n = N ? N : dimension;
-  for (int i = threadIdx.x; i < n*n; i += blockDim.x) { lu[i] = Ain[i]; }
-  for (int i = threadIdx.x; i < n; i += blockDim.x) { perm[i] = i; }
-  __syncthreads();
-  for (int k = 0; k < n; ++k)
-    {
-    if (threadIdx.x == 0)
-      {
-      int piv = k;
-      T mx = fabs(lu[k * n + k]);
-      for (int i = k + 1; i < n; ++i)
-        {
-        const T v = fabs(lu[i * n + k]);
-        if (v > mx)
-          {
-          mx = v;
-          piv = i;
-          }
-        }
-      *pivslot = piv;
-      }
-    __syncthreads();
-    const int piv = *pivslot;
-    if (piv != k)
-      {
-      for (int j = threadIdx.x; j < n; j += blockDim.x)
-        {
-        const T t = lu[k * n + j];
-        lu[k * n + j] = lu[piv * n + j];
-        lu[piv * n + j] = t;
-        }
-      if (threadIdx.x == 0)
-        {
-        const int t = perm[k];
-        perm[k] = perm[piv];
-        perm[piv] = t;
-        }
-      }
-    __syncthreads();
-    const T d = lu[k * n + k];
-    for (int i = k + 1 + threadIdx.x; i < n; i += blockDim.x)
-      {
-      lu[i*n+k] /= d;
-      }
-    __syncthreads();
-    // Independent trailing entries retain the same ascending-k updates.
-    for (int e = threadIdx.x; e < n*n; e += blockDim.x)
-      {
-      const int i = e/n, j = e%n;
-      if (i > k && j > k) { lu[e] -= lu[i*n+k] * lu[k*n+j]; }
-      }
-    __syncthreads();
-    }
-  for (int j = threadIdx.x; j < n; j += blockDim.x)
-    {
-    T yy[N ? N : UKF_GPU_MAX_STATE];
-    T xc[N ? N : UKF_GPU_MAX_STATE];
-    for (int i = 0; i < n; ++i)
-      {
-      yy[i] = (perm[i] == j) ? T(1) : T(0);
-      }
-    for (int i = 1; i < n; ++i)
-      {
-      T s2 = yy[i];
-      for (int k2 = 0; k2 < i; ++k2)
-        {
-        s2 -= lu[i * n + k2] * yy[k2];
-        }
-      yy[i] = s2;
-      }
-    for (int i = n - 1; i >= 0; --i)
-      {
-      T s2 = yy[i];
-      for (int k2 = i + 1; k2 < n; ++k2)
-        {
-        s2 -= lu[i * n + k2] * xc[k2];
-        }
-      xc[i] = s2 / lu[i * n + i];
-      }
-    for (int i = 0; i < n; ++i)
-      {
-      Ainv[i * n + j] = xc[i];
-      }
-    }
-  __syncthreads();
 }
 
 /* diffusion(m, lambdas) — linalg.h; l3 == l2 handled by caller.
@@ -303,7 +211,7 @@ __device__ void d_H_sigma_prep(int model, const T* st,
 /* signal value for one gradient from a precomputed sigma */
 template<typename T>
 __device__ T d_H_grad(int model, const T* D1, const T* D2,
-                      T w1, T w2, const T* grads, const T* b, int j)
+                      T w1, T w2, const T* grads, const T* b, int j, int math_policy = 0)
 {
   const T u0 = grads[j * 3 + 0];
   const T u1 = grads[j * 3 + 1];
@@ -312,13 +220,13 @@ __device__ T d_H_grad(int model, const T* D1, const T* D2,
   const T du0 = D1[0] * u0 + D1[1] * u1 + D1[2] * u2;
   const T du1 = D1[3] * u0 + D1[4] * u1 + D1[5] * u2;
   const T du2 = D1[6] * u0 + (D1[7] * u1 + D1[8] * u2);
-  T val = exp(-bj * (u0 * du0 + u1 * du1 + u2 * du2)) * w1;
+  T val = d_host_exp(math_policy,-bj * (u0 * du0 + u1 * du1 + u2 * du2)) * w1;
   if (model == UKF_GPU_MODEL_SIMPLE2T)
     {
     const T ev0 = D2[0] * u0 + D2[1] * u1 + D2[2] * u2;
     const T ev1 = D2[3] * u0 + D2[4] * u1 + D2[5] * u2;
     const T ev2 = D2[6] * u0 + (D2[7] * u1 + D2[8] * u2);
-    val += exp(-bj * (u0 * ev0 + u1 * ev1 + u2 * ev2)) * w2;
+    val += d_host_exp(math_policy,-bj * (u0 * ev0 + u1 * ev1 + u2 * ev2)) * w2;
     }
   return val;
 }
@@ -522,7 +430,7 @@ __global__ void k_interp(GPUDarParams P, DevBufs D, int F)
           if (z < 0 || P.nz <= z) { continue; }
           const T dz = (z - pz) * (T)P.vz;
           const T dzz = dz * dz;
-          const T w = exp(-(dxx + dyy + dzz) / sigma);
+          const T w = d_host_exp(P.libm_exp,-(dxx + dyy + dzz) / sigma);
           acc += w * (T)D.dwi[P.step1 * x + P.step2 * y + z * G + q];
           w_sum += w;
           }
@@ -704,26 +612,12 @@ __global__ void k_H(GPUDarParams P, DevBufs D, int F)
       {
       const T grad[3] = {(T)D.gradients[j*3], (T)D.gradients[j*3+1], (T)D.gradients[j*3+2]};
       const T bval[1] = {(T)D.bvalues[j]};
-      const double value = d_H_grad(P.model, D1s, D2s, ws[0], ws[1], grad, bval, 0);
+      const double value = d_H_grad(P.model, D1s, D2s, ws[0], ws[1], grad, bval, 0, P.libm_exp);
       Z[(size_t)i * Q2 + j] = value;
       Z[(size_t)i * Q2 + j + P.G] = value;
       }
     __syncwarp();
     }
-}
-
-// The second gradient half repeats the first. Reuse rounded products,
-// while retaining every addition in the original order.
-template<int G>
-__device__ __forceinline__ double d_mirrored_dot(const double* a, const double* b)
-{
-  double products[G ? G : 1];
-  double acc = 0;
-#pragma unroll
-  for (int q = 0; q < G; ++q) { products[q] = a[q]*b[q]; acc += products[q]; }
-#pragma unroll
-  for (int q = 0; q < G; ++q) { acc += products[q]; }
-  return acc;
 }
 
 /* The UKF information-form update. One block per fiber. */
@@ -738,7 +632,8 @@ __global__ void k_update(GPUDarParams P, DevBufs D, int F)
   const int n = N ? N : P.n;
   const int S = 2 * n + 1;
   const int Q2 = MirrorG ? 2*MirrorG : 2*P.G;
-  const int G = MirrorG ? MirrorG : (P.noddi ? Q2 : P.G);
+  // GEMM column tails may round differently even for mirrored gradients.
+  const int G = Q2;
   const int nn = n * n;
   double* smem = (double*)ukf_smem_raw;
   /* shared layout: Xhat[n] | pnew[nn] | Yk[nn] | yhat[n] | Zhat[Q2] | I[nn] |
@@ -798,11 +693,9 @@ __global__ void k_update(GPUDarParams P, DevBufs D, int F)
     {
     const int d = e / n;
     const int c = e - d * n;
-    double acc = double(0);
-    for (int i = 0; i < S; ++i)
-      {
-      acc += weighted_X[(size_t)i * n + d] * X[(size_t)i * n + c];
-      }
+    // Nested in +Q, Eigen evaluates this product in row-major storage.
+    const int order = d_eigen_gemm_order(P,c,n,d,n,S);
+    const double acc = d_eigen_dot(P,weighted_X+d,n,X+c,n,S,order);
     double q = double(0);
     if (d == c)
       {
@@ -821,7 +714,7 @@ __global__ void k_update(GPUDarParams P, DevBufs D, int F)
   __syncthreads();
 
   /* Yk = p_new^-1 (block-parallel) ; yhat = Yk * X_hat */
-  d_block_inverse<N>( pnew, Yk, lu, perm, perm + n, n);
+  d_block_inverse<N>( pnew, Yk, lu, perm, perm + n, P, n);
   for (int d = threadIdx.x; d < n; d += blockDim.x)
     {
     double acc = double(0);
@@ -841,7 +734,7 @@ __global__ void k_update(GPUDarParams P, DevBufs D, int F)
       {
       acc += Z[(size_t)i * Q2 + q] * Wsh[i];
       }
-    Zhat[q] = acc; if (G < Q2) { Zhat[q+G] = acc; }
+    Zhat[q] = acc;
     }
   __syncthreads();
 
@@ -850,7 +743,7 @@ __global__ void k_update(GPUDarParams P, DevBufs D, int F)
     const int q = e % G, sigma = e / G;
     const size_t index = (size_t)sigma * Q2 + q;
     const double value = Z[index] - Zhat[q];
-    Z[index] = value; if (G < Q2) { Z[index+G] = value; }
+    Z[index] = value;
     }
   __syncthreads();
 
@@ -861,12 +754,9 @@ __global__ void k_update(GPUDarParams P, DevBufs D, int F)
       {
       const int d = e / G;
       const int q = e - d * G;
-      double acc = double(0);
-      for (int i = 0; i < S; ++i)
-        {
-        acc += weighted_X[(size_t)i * n + d] * Z[(size_t)i * Q2 + q];
-        }
-      Pxz[d*Q2+q] = acc; if (G < Q2) { Pxz[d*Q2+q+G] = acc; }
+      const int order = d_eigen_gemm_order(P,d,n,q,Q2,S);
+      const double acc = d_eigen_dot(P,weighted_X+d,n,Z+q,Q2,S,order);
+      Pxz[d*Q2+q] = acc;
       }
   }
   __syncthreads();
@@ -878,12 +768,9 @@ __global__ void k_update(GPUDarParams P, DevBufs D, int F)
       {
       const int d = e / G;
       const int q = e - d * G;
-      double acc = double(0);
-      for (int k = 0; k < n; ++k)
-        {
-        acc += Yk[d * n + k] * Pxz[k * Q2 + q];
-        }
-      Ht[d*Q2+q] = acc; if (G < Q2) { Ht[d*Q2+q+G] = acc; }
+      const int order = d_eigen_gemm_order(P,d,n,q,Q2,n);
+      const double acc = d_eigen_dot(P,Yk+d*n,1,Pxz+q,Q2,n,order);
+      Ht[d*Q2+q] = acc;
       }
   }
   __syncthreads();
@@ -902,55 +789,36 @@ __global__ void k_update(GPUDarParams P, DevBufs D, int F)
     D.nmse[f] = num / den;
     }
 
-  /* Form the residual before reusing Pxz for the noise-scaled Ht. */
+  /* v2 = (z - Z_hat) + Pxz.transpose() * yhat. */
   {
     const double* z = D.z + (size_t)f * Q2;
     for (int q = threadIdx.x; q < G; q += blockDim.x)
       {
-      double acc = double(0);
-      for (int d = 0; d < n; ++d)
-        {
-        acc += Pxz[d * Q2 + q] * yhat[d];
-        }
-      v2[q] = (z[q] - Zhat[q]) + acc; if (G < Q2) { v2[q+G] = v2[q]; }
+      const double acc = d_eigen_vector_dot(P,Pxz+q,Q2,yhat,1,n);
+      v2[q] = (z[q] - Zhat[q]) + acc;
       }
   }
   __syncthreads();
 
-  // Each rounded Ht*R value is reused by n information-matrix entries
-  // and the information vector. Pxz is no longer needed after v2.
+  // Eigen extracts the scalar R from both products and applies it last.
   const double R = double(1) / (double)P.Rs;
-  for (int e = threadIdx.x; e < n*G; e += blockDim.x)
-    {
-    const int d = e / G, q = e % G;
-    const double value = Ht[d*Q2+q] * R;
-    Pxz[d*Q2+q] = value; if (G < Q2) { Pxz[d*Q2+q+G] = value; }
-    }
-  __syncthreads();
-
-  /* I = (Ht*R) * Ht'; preserve the full Q2 accumulation order. */
   for (int e = threadIdx.x; e < nn; e += blockDim.x)
     {
     const int d = e / n, c = e % n;
-    double acc = double(0);
-    if (MirrorG) { acc = d_mirrored_dot<MirrorG>(Pxz + d*Q2, Ht + c*Q2); }
-    else
-      {
-      for (int q = 0; q < Q2; ++q) { acc += Pxz[d * Q2 + q] * Ht[c * Q2 + q]; }
-      }
-    Imat[e] = acc;
+    const int order = d_eigen_gemm_order(P,d,n,c,n,Q2);
+    Imat[e] = d_eigen_dot(P,Ht+d*Q2,1,Ht+c*Q2,1,Q2,order)*R;
     }
-
-  /* i = (Ht*R) * v2 */
   for (int d = threadIdx.x; d < n; d += blockDim.x)
     {
-    double acc = double(0);
-    if (MirrorG) { acc = d_mirrored_dot<MirrorG>(Pxz + d*Q2, v2); }
-    else
+    // Column-major GEMV uses 16-column blocks from signal dimension 128.
+    double sum = 0;
+    const int width = Q2 < 128 ? Q2 : 16;
+    for (int q = 0; q < Q2; q += width)
       {
-      for (int q = 0; q < Q2; ++q) { acc += Pxz[d * Q2 + q] * v2[q]; }
+      const double part = d_eigen_dot(P,Ht+d*Q2+q,1,v2+q,1,min(width,Q2-q),0);
+      sum = d_eigen_madd(part,R,sum,P.eigen_fma);
       }
-    ivec[d] = acc;
+    ivec[d] = sum;
     }
   __syncthreads();
 
@@ -960,7 +828,7 @@ __global__ void k_update(GPUDarParams P, DevBufs D, int F)
     pnew[e] = Yk[e] + Imat[e];
     }
   __syncthreads();
-  d_block_inverse<N>( pnew, Yk, lu, perm, perm + n, n);   /* reuse Yk as p_new */
+  d_block_inverse<N>( pnew, Yk, lu, perm, perm + n, P, n);   /* reuse Yk as p_new */
   for (int d = threadIdx.x; d < n; d += blockDim.x)
     {
     double acc = double(0);
@@ -1128,7 +996,7 @@ __global__ void k_step_stop(GPUDarParams P, DevBufs D, int F, int stepnr)
   for (int q = threadIdx.x; q < P.G; q += blockDim.x)
     {
     smem[q] = smem[q + P.G] = d_H_grad(P.model, smem + Q2, smem + Q2 + 9, ws_single[0], ws_single[1],
-                       D.gradients, D.bvalues, q);
+                       D.gradients, D.bvalues, q, P.libm_exp);
     }
   __syncthreads();
   double mean_signal = 0;

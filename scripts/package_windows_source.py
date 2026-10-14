@@ -12,7 +12,7 @@ repository = Path(__file__).resolve().parents[1]
 args.output.parent.mkdir(parents=True, exist_ok=True)
 source_root = 'UKFGPU-Windows-source-' + date.today().isoformat()
 files = set()
-for name in ('common', 'ukf', 'platforms', 'slicer-extension'):
+for name in ('common', 'ukf', 'platforms', 'slicer-extension', 'third-party'):
     for path in (repository/name).rglob('*'):
         if path.is_file() and not {'__pycache__', 'Runtime'} & set(path.parts):
             files.add(path)

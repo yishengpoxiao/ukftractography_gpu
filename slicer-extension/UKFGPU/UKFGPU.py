@@ -110,7 +110,7 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         self.precision = qt.QComboBox()
         self.precision.addItems(["FP64", "Mixed FP32 / FP64"])
         self.precision.setCurrentIndex(1)
-        self.addRow(form, "Precision", self.precision, "Default: mixed FP32 / FP64. Mixed precision accelerates selected Simple-model signal calculations; sensitive calculations and Full Tensor, FreeWater and NODDI retain FP64.")
+        self.addRow(form, "Precision", self.precision, "Default: mixed FP32 / FP64. Mixed precision accelerates Simple1T/2T signal calculations; sensitive calculations, Simple3T, Full Tensor, FreeWater and NODDI retain FP64.")
         self.allGpus = qt.QCheckBox("Show all accessible CUDA GPUs")
         self.allGpus.checked = True
         self.addRow(form, "GPU visibility", self.allGpus, "Enabled: ignore CUDA_VISIBLE_DEVICES in discovery and tracking child processes. Disabled: use Slicer's startup CUDA visibility and ordering. Container and driver access restrictions still apply. Only NVIDIA CUDA GPUs can run this backend.")
@@ -297,7 +297,7 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
             self.records[name].enabled = enabled
             if not enabled:
                 self.records[name].checked = False
-        simple = self.model.currentText in ("Simple1T", "Simple2T", "Simple3T")
+        simple = self.model.currentText in ("Simple1T", "Simple2T")
         self.precision.enabled = simple
         if not simple:
             self.precision.currentIndex = 0

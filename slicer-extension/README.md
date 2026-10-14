@@ -36,9 +36,9 @@ Available presets are **Standard**, **Quick preview**, and **Fine sampling**. St
 
 GPU discovery and selection validation is documented in [the earlier report](GPU-SELECTION-2026-10-14.md). Scene settings, multiple selected GPUs, progress and display controls are covered by `Testing/slicer_features.py`.
 
-Controls are enabled by model: tensor FA/eigenvalue parameters and tensor recording, FreeWater noise/recording, and NODDI noise/recording. Branching additionally requires a multi-tensor model and a seed labelmap. Switching models clears incompatible record flags and disables unsupported precision selection; Full Tensor, FreeWater and NODDI use FP64. Disabled numeric options are omitted from the backend command.
+Controls are enabled by model: tensor FA/eigenvalue parameters and tensor recording, FreeWater noise/recording, and NODDI noise/recording. Branching additionally requires a multi-tensor model and a seed labelmap. Switching models clears incompatible record flags and disables unsupported precision selection; Simple3T, Full Tensor, FreeWater and NODDI use FP64. Disabled numeric options are omitted from the backend command.
 
-Models include Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F. Mixed precision lowers selected Simple-model signal calculations to FP32; sensitive calculations and other models retain FP64. Zero Qm/Ql/Qw/Rs values use backend model defaults. Branching is disabled by default.
+Models include Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F. Mixed precision lowers Simple1T/2T signal calculations to FP32; sensitive calculations and other models retain FP64. Zero Qm/Ql/Qw/Rs values use backend model defaults. Branching is disabled by default.
 
 With SlicerDMRI's FiberBundle node class available, fibers are imported as a FiberBundle; otherwise, a Model node is used. Automated integration covers both Model and SlicerDMRI FiberBundle display, Save and reload in Slicer 5.2.2. UKF VTK coordinates are RAS and are read directly to avoid a generic reader's LPS conversion. Input export preserves original node storage paths. Inputs with parent transforms are unsupported; use aligned volumes without parent transforms.
 
@@ -46,7 +46,7 @@ Unavailable GPUs or a backend CPU fallback are reported as failures. Inspect the
 
 ## Accuracy
 
-The interface does not resolve existing CPU/GPU algorithm differences. Some full-tensor, two-tensor FreeWater, long NODDI2F, degenerate Simple3T, branching, and whole-brain cases fail strict acceptance. The requirement is identical fiber order and per-fiber point counts, with positional Euclidean error at most 0.001 mm. A successful GPU run or regression against previous GPU output does not establish CPU agreement. See the [accuracy report](../tests/严格精度验收-2026-10-11.md).
+Accuracy acceptance requires identical fiber order and per-fiber point counts, positional Euclidean error at most 0.001 mm, and recorded-array checks. Long whole-brain, branching, and additional device/platform combinations require separate validation. The upstream zero-tensor FreeWater case can produce NaN FA; its CPU behavior is preserved, so this case remains a known finite-record limitation.
 
 ## Package
 

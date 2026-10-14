@@ -30,6 +30,9 @@ struct GPUDarParams
   int model;          /* UKF_GPU_MODEL_* */
   int n;              /* state dimension */
   int num_tensors, full, free_water, noddi;
+  int eigen_exp_packet, eigen_fma;
+  int libm_exp, libm_rotation;
+  int eigen_packet, eigen_gemm_mr, eigen_solve_panel;
   int has_process_noise, num_constraints;
   double process_noise[UKF_GPU_MAX_STATE];
   int constraint_index[8];

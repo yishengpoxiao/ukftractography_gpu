@@ -4,6 +4,7 @@
 #ifndef UKF_GPU_QP_CUH
 #define UKF_GPU_QP_CUH
 #include <float.h>
+#include "gpu_eigen_math.cuh"
 template<int N>
 struct QPVector
 {
@@ -303,9 +304,8 @@ __device__ __noinline__ bool d_constrain(const GPUDarParams& P, double* values, 
     }
   for (int i = 0; i < n; ++i)
     {
-    g0[i] = 0;
-    for (int j = 0; j < n; ++j) { g0[i] -= G(j,i)*x[j]; }
-
+    // W.transpose()*x is a row-major Eigen GEMV; its scalar factor is applied last.
+    g0[i] = -d_eigen_vector_dot(P,G.values+i,n,x.values,1,n,n%2 && i==n-1);
     }
   for (int c = 0; c < m; ++c)
     {
