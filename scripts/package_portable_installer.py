@@ -69,7 +69,7 @@ def create_bundle(repository, runtimes, output):
         docs = bundle/'docs'
         docs.mkdir()
         for source in [repository/'LICENSE.txt', *[repository/'slicer-extension'/name for name in
-                       ('README.md', 'INSTALLER.md', 'INSTALLER-VALIDATION-2026-10-12.md', 'WINDOWS-2026-10-11.md')]]:
+                       ('README.md', 'INSTALLER.md', 'INSTALLER-VALIDATION-2026-10-12.md', 'GPU-SELECTION-2026-10-14.md', 'WINDOWS-2026-10-11.md')]]:
             shutil.copy2(source, docs/source.name)
         manifest = dict(format=1, source_commit=subprocess.check_output(
             ['git', '-C', str(repository), 'rev-parse', 'HEAD'], text=True).strip(), runtimes={})

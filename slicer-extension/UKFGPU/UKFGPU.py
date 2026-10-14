@@ -102,10 +102,15 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         self.precision.addItems(["FP64", "Mixed FP32 / FP64"])
         self.precision.setCurrentIndex(1)
         self.addRow(form, "Precision", self.precision, "Default: mixed FP32 / FP64. Mixed precision accelerates selected Simple-model signal calculations; sensitive calculations and Full Tensor, FreeWater and NODDI retain FP64.")
+        self.allGpus = qt.QCheckBox("Show all accessible CUDA GPUs")
+        self.allGpus.checked = True
+        self.addRow(form, "GPU visibility", self.allGpus, "Enabled: ignore CUDA_VISIBLE_DEVICES in discovery and tracking child processes. Disabled: use Slicer's startup CUDA visibility and ordering. Container and driver access restrictions still apply. Only NVIDIA CUDA GPUs can run this backend.")
+        self.allGpus.connect("toggled(bool)", self.refreshGpu)
         self.device = qt.QComboBox()
         self.device.setEditable(True)
         self.device.addItem("0")
         self.gpuDetected = False
+        self.gpuDevices = {}
         self.gpuProbe = None
         self.gpuAvailable = True
         self.gpuTimer = qt.QTimer(self.parent)
@@ -115,9 +120,9 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         gpuRow.addWidget(self.device)
         self.refreshGpuButton = qt.QPushButton("Refresh")
         self.refreshGpuButton.connect("clicked()", self.refreshGpu)
-        self.refreshGpuButton.setToolTip("Query GPUs visible to the backend. CUDA_VISIBLE_DEVICES is respected.")
+        self.refreshGpuButton.setToolTip("Detect GPUs using the selected visibility mode and preserve the selected physical GPU when available.")
         gpuRow.addWidget(self.refreshGpuButton)
-        gpuHelp = "Detected CUDA ordinal, GPU name and total memory. If detection fails, enter a CUDA device index manually. Refresh after changing the backend."
+        gpuHelp = "Choose the single GPU used for tracking. Each entry shows CUDA index, model, total memory and PCI bus address, so identical cards can be distinguished. If discovery fails, enter a CUDA index manually."
         self.addRow(form, "GPU device", gpuRow, gpuHelp)
         self.device.setToolTip(gpuHelp)
         self.gpuStatus = qt.QLabel()
@@ -236,15 +241,17 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
             raise ValueError("GPU device index must be nonnegative.")
         return device
 
-    def refreshGpu(self):
+    def refreshGpu(self, *unused):
         if self.gpuProbe is not None or self.logic.process is not None:
             return
         self.gpuStatus.text = "Detecting CUDA GPUs..."
         self.refreshGpuButton.enabled = False
+        self.allGpus.enabled = False
+        self.device.enabled = False
         self.runButton.enabled = False
         self.gpuProbe = qt.QProcess(self.parent)
         environment = qt.QProcessEnvironment()
-        for key, value in process_environment(slicer.util.startupEnvironment()).items():
+        for key, value in process_environment(slicer.util.startupEnvironment(), all_gpus=self.allGpus.checked).items():
             environment.insert(key, value)
         self.gpuProbe.setProcessEnvironment(environment)
         self.gpuProbe.setProcessChannelMode(qt.QProcess.MergedChannels)
@@ -281,8 +288,16 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         self.gpuTimer.stop()
         self.gpuProbe.deleteLater()
         self.gpuProbe = None
-        selected = self.device.itemData(self.device.currentIndex) if self.gpuDetected else 0
+        if self.gpuDetected:
+            selected = self.device.itemData(self.device.currentIndex)
+        else:
+            try:
+                selected = int(self.device.currentText)
+            except ValueError:
+                selected = 0
+        selected_pci = self.gpuDevices.get(selected, {}).get('pci_bus')
         self.device.clear()
+        self.gpuDevices = {device['index']: device for device in devices or []}
         self.gpuDetected = devices is not None and bool(devices)
         self.gpuAvailable = devices is None or bool(devices)
         self.device.setEditable(devices is None)
@@ -290,15 +305,17 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
             self.device.addItem("0")
             self.gpuStatus.text = message + " Manual CUDA index is available."
         elif not devices:
-            self.gpuStatus.text = "No CUDA GPU is visible. Check the driver and CUDA_VISIBLE_DEVICES, then Refresh."
+            self.gpuStatus.text = "No CUDA GPU is visible. Check the driver and GPU visibility mode, then Refresh."
         else:
             for device in devices:
-                self.device.addItem("CUDA %d: %s (%.1f GiB)" % (device['index'], device['name'], device['memory']/2**30), device['index'])
-            index = self.device.findData(selected)
+                self.device.addItem("CUDA %d: %s (%.1f GiB) | PCI %s" % (device['index'], device['name'], device['memory']/2**30, device['pci_bus']), device['index'])
+            index = next((i for i, device in enumerate(devices) if device['pci_bus'] == selected_pci), self.device.findData(selected))
             self.device.currentIndex = max(0, index)
-            self.gpuStatus.text = "%d CUDA GPU(s) detected." % len(devices)
+            scope = "all accessible GPUs" if self.allGpus.checked else "startup CUDA visibility"
+            self.gpuStatus.text = "%d CUDA GPU(s) detected (%s). Select a GPU above." % (len(devices), scope)
         self.device.enabled = self.gpuAvailable
         self.refreshGpuButton.enabled = True
+        self.allGpus.enabled = True
         self.runButton.enabled = self.gpuAvailable and self.logic.process is None
 
     def selector(self, types, optional=False):
@@ -333,18 +350,23 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
             self.logic.start(self.backend.text, self.dwi.currentNode(), self.mask.currentNode(),
                              self.model.currentText, self.precision.currentIndex,
                              self.gpuDevice(), self.seeds.currentNode(), self.seedLabels.text, options,
-                             result_name=self.fiberName.text)
+                             result_name=self.fiberName.text, all_gpus=self.allGpus.checked)
+            self.appendLog("Selected GPU: " + self.device.currentText + "\n")
             self.runButton.enabled = False
             self.refreshGpuButton.enabled = False
+            self.device.enabled = False
+            self.allGpus.enabled = False
             self.applyPresetButton.enabled = False
             self.cancelButton.enabled = True
-            self.status.text = "Tracking on GPU…"
+            self.status.text = "Tracking on " + self.device.currentText
         except Exception as exc:
             slicer.util.errorDisplay(str(exc))
 
     def onFinished(self, node, error):
         self.runButton.enabled = self.gpuAvailable and self.gpuProbe is None
         self.refreshGpuButton.enabled = True
+        self.device.enabled = self.gpuAvailable
+        self.allGpus.enabled = True
         self.applyPresetButton.enabled = True
         self.cancelButton.enabled = False
         self.status.text = error or "Added to scene: " + node.GetName() + ". Use Save to keep fibers."
@@ -373,7 +395,7 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
         self.cancelled = False
 
     def start(self, executable, dwi, mask, model="Simple2T", precision=1,
-              device=0, seeds=None, seed_labels="1", options=None, result_name=""):
+              device=0, seeds=None, seed_labels="1", options=None, result_name="", all_gpus=False):
         if self.process is not None:
             raise RuntimeError("Tracking is already running.")
         if not os.path.isfile(executable) or not os.access(executable, os.X_OK):
@@ -396,6 +418,8 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
         self.model = model
         self.resultName = result_name.strip() or "UKF_" + model
         self.precision = precision
+        self.device = device
+        self.gpuVisibility = "All accessible CUDA GPUs" if all_gpus else "Startup CUDA visibility"
         try:
             for node, name in ((dwi, "dwi"), (mask, "mask"), (seeds, "seeds")):
                 if node and not slicer.util.exportNode(node, os.path.join(self.jobDirectory, name + ".nrrd")):
@@ -404,7 +428,7 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
             self.cancelled = False
             self.process = qt.QProcess(slicer.app)
             environment = qt.QProcessEnvironment()
-            for key, value in process_environment(slicer.util.startupEnvironment(), executable).items():
+            for key, value in process_environment(slicer.util.startupEnvironment(), executable, all_gpus=all_gpus).items():
                 environment.insert(key, value)
             self.process.setProcessEnvironment(environment)
             self.process.setWorkingDirectory(self.jobDirectory)
@@ -458,6 +482,8 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
                 node.CreateDefaultDisplayNodes()
                 node.SetAttribute("UKFGPU.Model", self.model)
                 node.SetAttribute("UKFGPU.Precision", "FP64" if self.precision == 0 else "Mixed FP32 / FP64")
+                node.SetAttribute("UKFGPU.GPUDevice", str(self.device))
+                node.SetAttribute("UKFGPU.GPUVisibility", self.gpuVisibility)
                 if slicer.app.layoutManager():
                     slicer.util.resetThreeDViews()
         except Exception as exc:

@@ -45,11 +45,13 @@ def command(executable, dwi, mask, output, model="Simple2T", precision=1,
     return args
 
 
-def process_environment(startup_environment, executable=None, platform=None):
+def process_environment(startup_environment, executable=None, platform=None, all_gpus=False):
     """Use Slicer's original environment rather than its loaded library paths."""
     env = dict(startup_environment)
     removed = {"LD_LIBRARY_PATH", "LD_PRELOAD", "PYTHONHOME", "PYTHONPATH",
                "QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH"}
+    if all_gpus:
+        removed.add("CUDA_VISIBLE_DEVICES")
     for key in list(env):
         if key.upper() in removed:
             del env[key]

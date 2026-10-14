@@ -6,7 +6,7 @@ Linux integration has been tested with Slicer 5.2.2, 5.6.2 and 5.12.4. The scene
 
 ## Install
 
-Download packages, instructions and checksums from the [2026-10-12 preview release](https://github.com/yishengpoxiao/ukftractography_gpu/releases/tag/v0.1.0-preview.20261012). Linux installers and the Windows source/build kit are separate assets; the Windows kit is not a native binary installer.
+Download packages, instructions and checksums from the [2026-10-14 preview release](https://github.com/yishengpoxiao/ukftractography_gpu/releases/tag/v0.1.0-preview.20261014). Linux installers and the Windows source/build kit are separate assets; the Windows kit is not a native binary installer.
 
 For a version-adaptive offline installer, follow [the portable installer guide](INSTALLER.md). It detects the running Slicer 5.x version, chooses an included native platform runtime, and installs dependencies privately with the extension. The current binary release contains Linux only. NVIDIA drivers remain a system prerequisite.
 
@@ -26,13 +26,15 @@ The historical Linux runtime targeted RTX 4090 / sm_89. The portable release add
 
 1. Load a DWI NRRD with DWMRI gradients and b-value metadata.
 2. Select the brain mask and optional seed labelmap. Export segmentation nodes to labelmaps first; enter labels separated by commas.
-3. Select the model and precision. The GPU list automatically shows backend-visible CUDA ordinals, names and total memory. Click **Refresh** after changing the backend. Detection runs in a separate process and respects `CUDA_VISIBLE_DEVICES`; if discovery fails, a manual CUDA index is available. When discovery confirms no visible device, tracking is disabled until a successful refresh.
+3. Select the model and precision. The GPU list automatically shows all accessible NVIDIA CUDA GPUs, with index, model, total memory and PCI bus address. Choose the single GPU used for tracking. **Show all accessible CUDA GPUs** is enabled by default: it clears `CUDA_VISIBLE_DEVICES` only in discovery and tracking child processes. Uncheck it to inherit Slicer's startup visibility and ordering. Container and driver access restrictions remain in effect. Click **Refresh** after changing the backend; the selected physical GPU is preserved by PCI address when available, even if its CUDA index changes. GPU controls are locked during discovery/tracking. Detection runs in a separate process; if it fails, enter a CUDA index manually. Confirmed empty discovery disables tracking.
 4. Set **Fiber name** if desired; leave it empty to use `UKF_<model>`. Duplicate names are automatically distinguished by Slicer. Choose a **Tracking preset** and click **Apply**, or adjust **Tracking and recording**, then click **Run GPU tracking**. No output path is required.
 5. Fibers are added directly to the current scene and displayed on completion. Use Slicer's **Save** dialog to save the fibers or scene when needed. Temporary tracking inputs and output are removed after import; unsaved fibers are lost when the scene is discarded. Cancellation or failure also removes the job's temporary files. Logs remain in the module's log panel for inspection and copying.
 
 Hover over parameter labels or controls to see their purpose, units, defaults, model applicability, and relevant runtime/memory implications. Recording checkboxes also explain the arrays they add.
 
 Available presets are **Standard**, **Quick preview**, and **Fine sampling**. Standard uses model-specific filter noise defaults and standard sampling (0.3/0.9 mm step/record spacing for 1T/2T, 0.15/0.45 mm for 3T). Quick preview limits each half-fiber to 50 mm and uses 1.8 mm recording spacing. Fine sampling halves the standard step and record spacing; it costs more computation and does not guarantee better anatomical accuracy. Apply replaces tracking parameters and clears all recording options, while preserving model, precision, device, inputs and fiber name. Selecting a preset alone does not overwrite manual settings.
+
+GPU discovery and selection validation is documented in [the current report](GPU-SELECTION-2026-10-14.md).
 
 Controls are enabled by model: tensor FA/eigenvalue parameters and tensor recording, FreeWater noise/recording, and NODDI noise/recording. Branching additionally requires a multi-tensor model and a seed labelmap. Switching models clears incompatible record flags and disables unsupported precision selection; Full Tensor, FreeWater and NODDI use FP64. Disabled numeric options are omitted from the backend command.
 

@@ -15,7 +15,7 @@ The portable installer detects the running Slicer version and the operating syst
    On Windows, use a raw path such as `r"C:\Users\you\Downloads\UKFGPU-Installer\install.py"`.
 
    Alternatively, launch your Slicer executable with `--python-script /full/path/UKFGPU-Installer/install.py`.
-3. Restart Slicer and open **Diffusion > Tractography > UKF GPU Tractography**.
+3. Restart Slicer and open **Diffusion > Tractography > UKF GPU Tractography**. The GPU dropdown lists accessible NVIDIA CUDA cards with model, memory and PCI address; select the card to use. **Show all accessible CUDA GPUs** is enabled by default. Uncheck it to inherit Slicer's startup `CUDA_VISIBLE_DEVICES` mask.
 
 If UKFGPU is already installed, the installer creates a new matching `.tar.gz` in its `packages` directory and leaves the existing installation intact. Remove the old UKFGPU in Extensions Manager, restart Slicer, then use **Install from file** to install that generated archive. Do not overwrite DLLs belonging to a running Windows process.
 

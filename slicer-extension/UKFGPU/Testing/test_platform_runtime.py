@@ -27,6 +27,19 @@ def pe_fixture(path, machine=0x8664):
 
 
 class PlatformRuntimeTest(unittest.TestCase):
+    def test_all_gpus_changes_only_child_cuda_visibility(self):
+        startup = {'CUDA_VISIBLE_DEVICES': '2,0', 'NVIDIA_VISIBLE_DEVICES': 'GPU-container',
+                   'cuda_visible_devices': '2,0', 'CUDA_DEVICE_ORDER': 'PCI_BUS_ID'}
+        inherited = process_environment(startup)
+        all_gpus = process_environment(startup, all_gpus=True)
+        self.assertEqual(inherited['CUDA_VISIBLE_DEVICES'], '2,0')
+        self.assertFalse(any(key.upper() == 'CUDA_VISIBLE_DEVICES' for key in all_gpus))
+        self.assertEqual(all_gpus['NVIDIA_VISIBLE_DEVICES'], 'GPU-container')
+        self.assertEqual(all_gpus['CUDA_DEVICE_ORDER'], 'PCI_BUS_ID')
+        self.assertEqual(startup['CUDA_VISIBLE_DEVICES'], '2,0')
+        argv = command('backend', 'dwi', 'mask', 'fibers', device=3)
+        self.assertEqual(argv[argv.index('--gpuDevice')+1], '3')
+
     def test_windows_environment(self):
         env = process_environment({'SystemRoot': r'C:\Windows', 'Path': r'C:\Slicer\bin',
                                    'Qt_Plugin_Path': 'SlicerQt', 'PYTHONPATH': 'SlicerPython',

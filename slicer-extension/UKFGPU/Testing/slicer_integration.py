@@ -49,6 +49,9 @@ try:
         assert time.monotonic() < deadline, widget.gpuStatus.text
         time.sleep(0.01)
     assert widget.gpuDevice() == 0
+    assert widget.allGpus.checked
+    if 'UKF_TEST_EXPECTED_GPU_COUNT' in os.environ:
+        assert widget.device.count == int(os.environ['UKF_TEST_EXPECTED_GPU_COUNT'])
     print("PASS asynchronous CUDA GPU discovery:", widget.device.currentText, flush=True)
     widget.gpuProbe = qt.QProcess(widget.parent)
     widget.finishGpuDiscovery([], "")
@@ -63,7 +66,42 @@ try:
         slicer.app.processEvents()
         assert time.monotonic() < deadline
         time.sleep(0.01)
-    assert widget.gpuDetected and widget.gpuDevice() == 0
+    assert widget.gpuDetected and widget.gpuDevice() == (2 if widget.device.count > 2 else 0)
+    # Preserve physical selection when CUDA_VISIBLE_DEVICES changes ordinals.
+    if widget.device.count > 1:
+        widget.device.currentIndex = 1
+        selected_pci = widget.gpuDevices[widget.gpuDevice()]['pci_bus']
+        widget.allGpus.checked = False
+        deadline = time.monotonic() + 15
+        while widget.gpuProbe is not None:
+            slicer.app.processEvents()
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        if 'UKF_TEST_EXPECTED_INHERITED_COUNT' in os.environ:
+            assert widget.device.count == int(os.environ['UKF_TEST_EXPECTED_INHERITED_COUNT'])
+        visible = {d['pci_bus'] for d in widget.gpuDevices.values()}
+        if selected_pci in visible:
+            assert widget.gpuDevices[widget.gpuDevice()]['pci_bus'] == selected_pci
+        selected_pci = widget.gpuDevices[widget.gpuDevice()]['pci_bus']
+        widget.allGpus.checked = True
+        deadline = time.monotonic() + 15
+        while widget.gpuProbe is not None:
+            slicer.app.processEvents()
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        assert widget.gpuDevices[widget.gpuDevice()]['pci_bus'] == selected_pci
+    widget.device.currentIndex = widget.device.count - 1
+    selected_device = widget.gpuDevice()
+    selected_pci = widget.gpuDevices[selected_device]['pci_bus']
+    assert 'PCI ' + selected_pci in widget.device.currentText
+    widget.refreshGpu()
+    deadline = time.monotonic() + 15
+    while widget.gpuProbe is not None:
+        slicer.app.processEvents()
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    assert widget.gpuDevice() == selected_device
+    print('PASS all-GPU/manual selection and physical selection preservation:', selected_device, selected_pci, flush=True)
     widget.fiberName.text = "Test fibers 测试"
     widget.model.currentIndex = list(MODELS).index("Simple2T-FW")
     assert widget.parameters['Qw'].enabled and widget.records['recordFreeWater'].enabled
@@ -91,7 +129,7 @@ try:
     assert widget.model.count == 12
     assert not hasattr(widget, "output")
     for control in [widget.dwi, widget.mask, widget.seeds, widget.seedLabels,
-                    widget.model, widget.precision, widget.device, widget.fiberName, widget.preset,
+                    widget.model, widget.precision, widget.allGpus, widget.device, widget.fiberName, widget.preset,
                     *widget.parameters.values(), *widget.records.values()]:
         assert control.toolTip, control.className()
     print("PASS scene-first UI and hover help", flush=True)
@@ -132,6 +170,8 @@ try:
                 control.checked = options.get(key, False)
             widget.run()
             assert not widget.runButton.enabled and widget.cancelButton.enabled
+            assert not widget.device.enabled and not widget.allGpus.enabled
+            assert not logic.process.processEnvironment().contains('CUDA_VISIBLE_DEVICES')
         else:
             logic.start(backend, dwi, mask, model, precision, 0, seeds, "1", options)
         temporary = Path(logic.jobDirectory)
@@ -139,7 +179,11 @@ try:
         assert not temporary.exists() and not Path(logic.output).exists()
         assert dwi.GetStorageNode().GetFileName() == storage_path
         assert len(results) == 1 and results[0][1] is None, results
+        if model == 'Simple2T':
+            assert '-> device %d,' % selected_device in logic.lastLog
+            assert widget.device.enabled and widget.allGpus.enabled
         node = results[0][0]
+        assert node.GetAttribute('UKFGPU.GPUDevice') == str(selected_device if model == 'Simple2T' else 0)
         if model == "Simple2T":
             assert node.GetName().startswith("Test fibers 测试") and node.GetName() != existing.GetName()
         else:
