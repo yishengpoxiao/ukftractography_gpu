@@ -34,7 +34,7 @@ The installer verifies file checksums, checks the platform and Linux glibc requi
 | NVIDIA graphics driver | System prerequisite; cannot be installed privately as an extension dependency |
 | Linux glibc and dynamic loader | System prerequisites; checked against the actual packaged binaries |
 
-The installer supports native **Linux x86_64** and **Windows x86_64** runtime selection. A bundle contains only the platforms listed in its dated manifest. If a native Windows runtime is absent, Windows installation stops with an explicit message. A source ZIP does not supply a native Windows executable. See the latest release and validation report for available native runtimes. Windows GPU execution requires a separate hardware acceptance run. macOS and ARM CUDA backends are unavailable.
+The installer supports native **Linux x86_64** and **Windows x86_64** runtime selection. A bundle contains only the platforms listed in its dated manifest. If a native Windows runtime is absent, Windows installation stops with an explicit message. A source ZIP does not supply a native Windows executable. The current release bundle includes both native Linux and Windows runtimes. Windows GPU execution requires a separate hardware acceptance run. macOS and ARM CUDA backends are unavailable.
 
 Build scripts select the GPU architectures supported by the chosen CUDA compiler and include baseline PTX. There is no fixed Toolkit-version check. A distributed runtime still needs a compatible NVIDIA driver; its bundled CUDA runtime must match the native backend. Older drivers may require a build with an older compatible Toolkit. Only RTX 4090 execution is currently validated. PTX JIT requires a driver that understands the toolkit's PTX version; a CUDA-family minimum driver alone does not guarantee JIT support. CPU hardware must support the AVX instructions used by the current Linux backend. Driver or hardware problems are reported and do not trigger system driver changes.
 
@@ -54,4 +54,3 @@ To include both operating systems, add `--runtime windows-x86_64=/path/to/window
 
 Output paths must be new; existing packages and manifests are not overwritten. The numerical GPU accuracy limitations remain unchanged.
 
-See the [installer validation report](INSTALLER-VALIDATION-2026-10-12.md) for executed tests and unverified platforms.
