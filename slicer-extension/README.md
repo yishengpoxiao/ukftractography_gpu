@@ -38,6 +38,8 @@ Controls are enabled by model: tensor FA/eigenvalue parameters and tensor record
 
 Models include Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F. Mixed precision lowers Simple1T/2T signal calculations to FP32; sensitive calculations and other models retain FP64. Zero Qm/Ql/Qw/Rs values use backend model defaults. Branching is disabled by default.
 
+FP64 is the default precision. Mixed precision can exceed the 0.001 mm position tolerance on real data and can change recorded states; select it explicitly for exploratory workloads and compare against FP64 before using its results quantitatively. Scene settings preserve previously selected precision values.
+
 With SlicerDMRI's FiberBundle node class available, fibers are imported as a FiberBundle; otherwise, a Model node is used. Automated integration covers both Model and SlicerDMRI FiberBundle display, Save and reload in Slicer 5.2.2. UKF VTK coordinates are RAS and are read directly to avoid a generic reader's LPS conversion. Input export preserves original node storage paths. Inputs with parent transforms are unsupported; use aligned volumes without parent transforms.
 
 Unavailable GPUs or a backend CPU fallback are reported as failures. Inspect the retained log for driver, runtime, parameter, or algorithm errors.

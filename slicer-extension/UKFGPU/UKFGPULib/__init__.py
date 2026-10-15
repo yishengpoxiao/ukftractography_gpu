@@ -26,7 +26,7 @@ RECORD_OPTIONS = ("recordFA", "recordTrace", "recordTensors", "recordFreeWater",
                   "recordState", "recordCovariance")
 
 
-def command(executable, dwi, mask, output, model="Simple2T", precision=1,
+def command(executable, dwi, mask, output, model="Simple2T", precision=0,
             device=0, seeds=None, seed_labels="1", options=None):
     """Return argv; all inputs are passed literally, without a shell."""
     validate_options(options or {})

@@ -1,6 +1,7 @@
 // FP64 port of the NODDI special functions in ../utilities.cc.
 #ifndef UKF_GPU_NODDI_CUH
 #define UKF_GPU_NODDI_CUH
+#include "gpu_eigen_math.cuh"
 __device__ double d_w_im_y100(double y100, double x) {
   switch ((int) y100) {
     case 0: {
@@ -430,21 +431,21 @@ __device__ double d_Legendre(int n, double t)
 
 // erfi(x) = -i erf(ix)
 // this is a approximation of erfi considering 0 < kappa < 26
-__device__ double d_dawsonf(double kappa)
+__device__ double d_dawsonf(double kappa, int exp_policy)
 {
   double erfi;
   double sk;
   double dawson;
   sk = sqrt(kappa);
-  erfi = exp(kappa) * d_w_im_y100(100/(1+sk), sk);
-  dawson = 0.5*exp(-kappa)*sqrt(M_PI)*erfi;
+  erfi = d_host_exp(exp_policy,kappa) * d_w_im_y100(100/(1+sk), sk);
+  dawson = 0.5*d_host_exp(exp_policy,-kappa)*sqrt(M_PI)*erfi;
   return dawson;
 }
 
 __device__ void d_WatsonHinderedDiffusionCoeff(double dPar,
                                   double dPerp,
                                   double kappa,
-                                  double* dw)
+                                  double* dw, int exp_policy)
 {
 
   double dParMdPerp, dParP2dPerp, k2, sk, dawson, factor;
@@ -461,14 +462,14 @@ __device__ void d_WatsonHinderedDiffusionCoeff(double dPar,
   else
   {
     sk = sqrt(kappa);
-    dawson = d_dawsonf(kappa);
+    dawson = d_dawsonf(kappa,exp_policy);
     factor = sk/dawson;
     dw[0] = (-dParMdPerp+2*dPerp*kappa+dParMdPerp*factor)/(2*kappa);
     dw[1] = (dParMdPerp+2*(dPar+dPerp)*kappa-dParMdPerp*factor)/(4*kappa);
   }
 }
 
-__device__ void d_WatsonSHCoeff(double kappa, double* SHCoeff)
+__device__ void d_WatsonSHCoeff(double kappa, double* SHCoeff, int exp_policy)
 {
   double sk,sk2,sk3,sk4,sk5,sk6;
   double k2,k3,k4,k5,k6;
@@ -488,10 +489,10 @@ __device__ void d_WatsonSHCoeff(double kappa, double* SHCoeff)
   k5 = k4*kappa;
   k6 = k5*kappa;
 
-  erfik = exp(kappa) * d_w_im_y100(100/(1+sk), sk);
+  erfik = d_host_exp(exp_policy,kappa) * d_w_im_y100(100/(1+sk), sk);
   ierfik = 1/erfik;
-  ek = exp(kappa);
-  dawsonk = 0.5*exp(-kappa)*sqrt(M_PI)*erfik;
+  ek = d_host_exp(exp_policy,kappa);
+  dawsonk = 0.5*d_host_exp(exp_policy,-kappa)*sqrt(M_PI)*erfik;
 
   SHCoeff[0] = 2*sqrt(M_PI);
 

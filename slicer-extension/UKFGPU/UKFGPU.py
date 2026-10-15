@@ -109,8 +109,8 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         self.addRow(form, "Model", self.model, "1T/2T/3T indicate the number of tensor components. Simple uses axially symmetric tensors; Full allows three independent eigenvalues. FW adds free water; NODDI models neurite compartments. Default: Simple2T. Some models have not passed strict CPU/GPU acceptance.")
         self.precision = qt.QComboBox()
         self.precision.addItems(["FP64", "Mixed FP32 / FP64"])
-        self.precision.setCurrentIndex(1)
-        self.addRow(form, "Precision", self.precision, "Default: mixed FP32 / FP64. Mixed precision accelerates Simple1T/2T signal calculations; sensitive calculations, Simple3T, Full Tensor, FreeWater and NODDI retain FP64.")
+        self.precision.setCurrentIndex(0)
+        self.addRow(form, "Precision", self.precision, "Default: FP64. Mixed precision accelerates Simple1T/2T signal calculations but can exceed the 0.001 mm position tolerance on real data. Use FP64 for strict CPU comparison. Simple3T, Full Tensor, FreeWater and NODDI retain FP64.")
         self.allGpus = qt.QCheckBox("Show all accessible CUDA GPUs")
         self.allGpus.checked = True
         self.addRow(form, "GPU visibility", self.allGpus, "Enabled: ignore CUDA_VISIBLE_DEVICES in discovery and tracking child processes. Disabled: use Slicer's startup CUDA visibility and ordering. Container and driver access restrictions still apply. Only NVIDIA CUDA GPUs can run this backend.")
@@ -768,7 +768,7 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
                     display.SetAndObserveColorNodeID('vtkMRMLColorTableNodeRainbow')
         node.SetAttribute('UKFGPU.ColorMode', mode)
 
-    def start(self, executable, dwi, mask, model="Simple2T", precision=1,
+    def start(self, executable, dwi, mask, model="Simple2T", precision=0,
               device=0, seeds=None, seed_labels="1", options=None, result_name="", all_gpus=False, gpu_uuids=None):
         if self.process is not None:
             raise RuntimeError("Tracking is already running.")

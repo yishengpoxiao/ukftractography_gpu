@@ -49,9 +49,20 @@ __device__ void d_tensor_matrix(const GPUDarParams& P, const double* state, T* m
     }
 }
 
+// Compute the same isotropic values once per device call, including Eigen's
+// packet/scalar tail selection for the Full2T FreeWater observation.
+__global__ void k_free_water_signal(GPUDarParams P, DevBufs D)
+{
+  const int q = blockIdx.x*blockDim.x+threadIdx.x;
+  if (q >= 2*P.G) { return; }
+  const double* u = D.gradients+q*3;
+  const double exponent = -D.bvalues[q]*(u[0]*(P.diff_fw*u[0])+u[1]*(P.diff_fw*u[1])+u[2]*(P.diff_fw*u[2]));
+  D.free_water_signal[q] = P.eigen_exp_packet > 1 ? d_full2fw_exp(P,exponent,2,q) : d_host_exp(P.libm_exp,exponent);
+}
+
 template<typename T>
 __device__ T d_tensor_signal(const GPUDarParams& P, const T* matrices, const double* state,
-                            const double* gradients, double b, int q)
+                            const double* gradients, double b, int q, const double* free_water_signal)
 {
   const T u[3] = {(T)gradients[q*3],(T)gradients[q*3+1],(T)gradients[q*3+2]};
   T signal = 0;
@@ -69,8 +80,7 @@ __device__ T d_tensor_signal(const GPUDarParams& P, const T* matrices, const dou
   if (P.free_water)
     {
     const T w = fmax((T)state[P.n-1],T(0));
-    const T exponent = -(T)b*(u[0]*(T(P.diff_fw)*u[0])+u[1]*(T(P.diff_fw)*u[1])+u[2]*(T(P.diff_fw)*u[2]));
-    const T iso = P.eigen_exp_packet > 1 ? (T)d_full2fw_exp(P,(double)exponent,2,q) : d_host_exp(P.libm_exp,exponent);
+    const T iso = (T)free_water_signal[q];
     signal = w*signal+(T(1)-w)*iso;
     }
   return signal;
@@ -90,8 +100,8 @@ __device__ void d_noddi_signal(const GPUDarParams& P, const DevBufs& D, const do
     const double* s = state + t*5;
     if (lane == 0)
       {
-      d_WatsonSHCoeff(s[4],coeff);
-      d_WatsonHinderedDiffusionCoeff(1.7e-9,1.7e-9*(1-s[3]),s[4],coeff+7);
+      d_WatsonSHCoeff(s[4],coeff,P.libm_exp);
+      d_WatsonHinderedDiffusionCoeff(1.7e-9,1.7e-9*(1-s[3]),s[4],coeff+7,P.libm_exp);
       coeff[9] = s[0]; coeff[10] = s[1]; coeff[11] = s[2];
       d_initNormalized(coeff[9],coeff[10],coeff[11]);
       if (P.num_tensors == 2 && coeff[9] < 0)
@@ -104,7 +114,18 @@ __device__ void d_noddi_signal(const GPUDarParams& P, const DevBufs& D, const do
       if (ct > 1) { ct /= (int)ct; }
       const double* table = D.noddi_table+(q%P.G)*10;
       double v = 0;
-      for (int j = 0; j < 7; ++j) { v += sqrt((j+0.25)*7/22)*d_Legendre(2*j,ct)*coeff[j]*table[j+3]; }
+      v += sqrt(0.25*7/22)*coeff[0]*table[3];
+      double previous = 1, older = 0;
+      // Each Legendre polynomial uses the same recurrence prefix. Reuse it
+      // without changing any recurrence or signal accumulation operation.
+      #pragma unroll
+      for (int k = 1; k <= 12; ++k)
+        {
+        const double value = (2.0*k-1.0)/k*ct*previous-(k-1.0)/k*older;
+        older = previous; previous = value;
+        if (k%2 == 0)
+          { const int j = k/2; v += sqrt((j+0.25)*7/22)*value*coeff[j]*table[j+3]; }
+        }
       work[q] = 0.5*v;
       }
     __syncwarp();
@@ -120,7 +141,7 @@ __device__ void d_noddi_signal(const GPUDarParams& P, const DevBufs& D, const do
       {
       const double* table = D.noddi_table+(q%P.G)*10;
       const double ct = D.gradients[q*3]*coeff[9]+D.gradients[q*3+1]*coeff[10]+D.gradients[q*3+2]*coeff[11];
-      const double ec = exp(-table[0]*((coeff[7]-coeff[8])*ct*ct+coeff[8]));
+      const double ec = d_host_exp(P.libm_exp,-table[0]*((coeff[7]-coeff[8])*(ct*ct)+coeff[8]));
       const double ic = work[q] > 0 ? work[q] : 0.1*coeff[12];
       const double v = s[3]*ic+(1-s[3])*ec;
       result[q] += v*(P.num_tensors == 1 ? 1.0 : P.w1);
@@ -156,7 +177,7 @@ __global__ void k_H_general(GPUDarParams P, DevBufs D, int F)
       const int count = P.eigen_exp_packet > 1 ? Q2 : P.G;
       for (int q = lane; q < count; q += 32)
         {
-        output[q] = d_tensor_signal(P,matrices,state,D.gradients,D.bvalues[q],q);
+        output[q] = d_tensor_signal(P,matrices,state,D.gradients,D.bvalues[q],q,D.free_water_signal);
         if (count < Q2) { output[q+P.G] = output[q]; }
         }
       __syncwarp();
@@ -225,7 +246,7 @@ __global__ void k_step_general(GPUDarParams P, DevBufs D, int F, int step)
       if (P.num_tensors > 1 && dots[t] < 0)
         { for (int c = 0; c < 3; ++c) { m[t][c] = -m[t][c]; } dots[t] = -dots[t]; }
       }
-    const double angle = P.num_tensors == 2 ? acos(m[0][0]*m[1][0]+m[0][1]*m[1][1]+m[0][2]*m[1][2])*180/M_PI : 0;
+    const double angle = P.num_tensors == 2 ? acos(m[0][0]*m[1][0]+m[0][1]*m[1][1]+m[0][2]*m[1][2])*(180.0/M_PI) : 0;
     D.trace[f] = traces[0]; if (P.num_tensors>1) { D.trace2[f] = traces[1]; }
     int selected = 0;
     if (P.num_tensors == 2 && dots[0] < dots[1]) { selected = 1; }
@@ -274,7 +295,7 @@ __global__ void k_step_general(GPUDarParams P, DevBufs D, int F, int step)
     const int count = P.eigen_exp_packet > 1 ? Q2 : P.G;
     for (int q = threadIdx.x; q < count; q += blockDim.x)
       {
-      memory[q] = d_tensor_signal(P,matrices,st,D.gradients,D.bvalues[q],q);
+      memory[q] = d_tensor_signal(P,matrices,st,D.gradients,D.bvalues[q],q,D.free_water_signal);
       if (count < Q2) { memory[q+P.G] = memory[q]; }
       }
     __syncthreads();

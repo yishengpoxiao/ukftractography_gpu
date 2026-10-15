@@ -7,8 +7,8 @@ This is a modified version of [pnlbwh/ukftractography](https://github.com/pnlbwh
 ## Features and current status
 
 - GPU filtering, constraints, tracking, and recording for 12 experimental models: Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F.
-- FP64 and mixed precision. `--gpuPrecision fp32` uses FP32 for Simple1T/2T signal calculations while sensitive calculations remain FP64; other models retain FP64.
-- Tracking kernel and record-transfer optimizations, including compact downloads and reuse of intermediate products.
+- FP64 by default, with optional mixed precision. `--gpuPrecision 1` uses FP32 for Simple1T/2T signal calculations while sensitive calculations remain FP64; other models retain FP64. Mixed precision can exceed the strict position tolerance on real data; use `--gpuPrecision 0` for strict CPU comparison.
+- Tracking kernel and record-transfer optimizations, including batched active-list compaction, parallel NODDI sigma observations, cached FreeWater observations, reused polynomial recurrences, and compact downloads.
 - A Slicer interface with input validation, automatic GPU discovery/free-memory recommendation, single or explicitly selected multi-GPU tracking, real completion counts and elapsed time, scene-persistent parameters, custom fiber names, and direction/FA/length/solid coloring.
 - Linux integration tested with Slicer 5.2.2, 5.6.2 and 5.12.4. Tracking results appear directly in the scene; parameter controls provide hover help. Windows native compilation, CPU execution, and extension installation have been checked in CI with Slicer 5.6.2 and 5.12.4. Windows GPU tracking still requires verification on NVIDIA hardware.
 
@@ -57,7 +57,7 @@ Adjust `CudaPath` to your installed Toolkit. See the [Windows build guide](slice
   --seedsFile UKFTractography/Data/Input/seed.nhdr \
   --tracts /new/output/fibers.vtk \
   --numTensor 2 --seedsPerVoxel 1 --useGPU \
-  --gpuDevice 0 --gpuPrecision fp64
+  --gpuDevice 0 --gpuPrecision 0
 ```
 
 Run the executable with `--help` for the complete option list. The output directory must exist. Runtime library search paths must include the GPU library and CUDA runtime; packaged Slicer runtimes handle this through their launcher.

@@ -108,6 +108,7 @@ struct GPUDevPointers
 
   /* constant input tables (device copies) */
   void*  noddi_table; /* G * 10: protocol b, parallel component, Eiso, seven integrals */
+  void*  free_water_signal; /* FP64, 2G: state-independent isotropic observation */
   void*  gradients;  /* FP64 */  /* 2G*3 */
   void*  bvalues;  /* FP64 */    /* 2G */
   float*  dwi;        /* nx*ny*nz*G (always float) */

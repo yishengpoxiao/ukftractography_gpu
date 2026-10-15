@@ -45,7 +45,7 @@ struct DevBufs
   double *z, *X, *Z, *scratch;
   double *rec_pos, *rec_norm, *rec_state, *rec_cov, *rec_nmse;
   double *rec_trace, *rec_trace2, *rec_fa, *rec_fa2;
-  double *gradients, *bvalues, *noddi_table;
+  double *gradients, *bvalues, *noddi_table, *free_water_signal;
   float *dwi;
   void *mask; int mask_type;
   void *stop; int stop_type;
@@ -68,6 +68,7 @@ struct DevBufs
     d.rec_fa = (double*)r.rec_fa; d.rec_fa2 = (double*)r.rec_fa2;
     d.gradients = (double*)r.gradients; d.bvalues = (double*)r.bvalues;
     d.noddi_table = (double*)r.noddi_table;
+    d.free_water_signal = (double*)r.free_water_signal;
     d.dwi = r.dwi; d.mask = r.mask; d.mask_type = r.mask_type;
     d.stop = r.stop; d.stop_type = r.stop_type;
     d.gm = r.gm; d.gm_type = r.gm_type;
@@ -911,8 +912,8 @@ __global__ void k_step_stop(GPUDarParams P, DevBufs D, int F, int stepnr)
       double fa_t1 = d_l2fa(l1_0, l1_1, l1_2);
       double fa_t2 = d_l2fa(l2_0, l2_1, l2_2);
       const double dot12 = m10 * m20 + m11 * m21 + m12 * m22;
-      const double dot_clamped = dot12 < double(-1) ? double(-1) : (dot12 > double(1) ? double(1) : dot12);
-      const double tensor_angle = acos(dot_clamped) * double(180.0 / 3.141592653589793238462643383279502884);
+      // Match Step2T: a dot above one leaves acos NaN and skips the angle swap.
+      const double tensor_angle = acos(dot12) * double(180.0 / M_PI);
       double* cov = D.cov + (size_t)f * n * n;
       auto swap_state2t = [&](void)
         {
@@ -1166,8 +1167,10 @@ bool run_waves(const GPUDarParams& P, GPUDevPointers& raw, int F, std::string& e
 {
   DevBufs D = DevBufs::from(raw);
   const int block = 32;
-  const int block_h = P.noddi ? 32 : 256;
+  const int block_update = 128;
   const int n = P.n, nn = n * n, Q2 = 2 * P.G, S2 = 2 * n + 1;
+  // Independent sigma observations can use separate warps, including NODDI.
+  const int block_h = P.noddi ? 32*std::max(1,std::min(8,int(32768/(sizeof(double)*(Q2+16))))) : 256;
   const size_t smem_sigmas = sizeof(double) * (nn + n);
   const size_t smem_update = sizeof(double) * (4 * nn + 4 * n + 2 * Q2 + S2 + S2*n) + sizeof(int) * (n + 1);
   const size_t smem_step = sizeof(double) * (P.noddi ? 2*Q2+16 : Q2+32);
@@ -1177,6 +1180,7 @@ bool run_waves(const GPUDarParams& P, GPUDevPointers& raw, int F, std::string& e
   CHK(cudaGetLastError());
   WaveProfile profile;
   int active = F;
+  const int compact_interval = 16;
   const bool report_progress = getenv("UKF_GPU_PROGRESS") != NULL;
   auto last_progress = std::chrono::steady_clock::now();
   for (int step = 1; step <= P.max_length && active > 0; ++step)
@@ -1216,13 +1220,13 @@ bool run_waves(const GPUDarParams& P, GPUDevPointers& raw, int F, std::string& e
     if (sample) { cudaEventRecord(profile.events[3]); }
     if (P.model == UKF_GPU_MODEL_GENERAL)
       {
-#define UPDATE_CASE(N) case N: k_update<N><<<active,block,smem_update>>>(P,D,F); break
+#define UPDATE_CASE(N) case N: k_update<N><<<active,block_update,smem_update>>>(P,D,F); break
       switch(n) { UPDATE_CASE(5); UPDATE_CASE(6); UPDATE_CASE(7); UPDATE_CASE(10); UPDATE_CASE(11); UPDATE_CASE(12); UPDATE_CASE(13); UPDATE_CASE(15); UPDATE_CASE(18); }
 #undef UPDATE_CASE
       }
-    else if (n == 5) { k_update<5><<<active, block, smem_update>>>(P, D, F); }
-    else if (P.G == 51) { k_update<10,51><<<active, block, smem_update>>>(P,D,F); }
-    else { k_update<10><<<active, block, smem_update>>>(P, D, F); }
+    else if (n == 5) { k_update<5><<<active, block_update, smem_update>>>(P, D, F); }
+    else if (P.G == 51) { k_update<10,51><<<active, block_update, smem_update>>>(P,D,F); }
+    else { k_update<10><<<active, block_update, smem_update>>>(P, D, F); }
     CHK(cudaGetLastError());
     if (P.num_constraints)
       {
@@ -1236,11 +1240,18 @@ bool run_waves(const GPUDarParams& P, GPUDevPointers& raw, int F, std::string& e
     else { k_step_stop<<<active, block, smem_step>>>(P, D, F, step); }
     CHK(cudaGetLastError());
     if (sample) { cudaEventRecord(profile.events[5]); }
-    CHK(cudaMemset(D.n_active_tmp, 0, sizeof(int)));
-    k_compact<<<(active + block - 1) / block, block>>>(raw, active);
-    CHK(cudaGetLastError());
-    CHK(cudaMemcpy(&active, D.n_active_tmp, sizeof(int), cudaMemcpyDeviceToHost));
-    if (report_progress)
+    // All tracking kernels skip inactive fibers. Keep the same list between
+    // compactions to queue several steps without a host/device synchronization.
+    // Branch seeds and profiling samples still require a completed step.
+    const bool compact = P.branching || sample || step % compact_interval == 0 || step == P.max_length;
+    if (compact)
+      {
+      CHK(cudaMemset(D.n_active_tmp, 0, sizeof(int)));
+      k_compact<<<(active + block - 1) / block, block>>>(raw, active);
+      CHK(cudaGetLastError());
+      CHK(cudaMemcpy(&active, D.n_active_tmp, sizeof(int), cudaMemcpyDeviceToHost));
+      }
+    if (report_progress && compact)
       {
       const auto now = std::chrono::steady_clock::now();
       if (step == 0 || active == 0 || std::chrono::duration<double>(now-last_progress).count() >= 0.25)
@@ -1267,9 +1278,12 @@ bool run_waves(const GPUDarParams& P, GPUDevPointers& raw, int F, std::string& e
         }
       ++profile.samples;
       }
-    std::swap(raw.act_idx, raw.act_idx_tmp);
-    D.act_idx = raw.act_idx;
-    D.act_idx_tmp = raw.act_idx_tmp;
+    if (compact)
+      {
+      std::swap(raw.act_idx, raw.act_idx_tmp);
+      D.act_idx = raw.act_idx;
+      D.act_idx_tmp = raw.act_idx_tmp;
+      }
     }
   return true;
 }
@@ -1306,6 +1320,12 @@ bool gpu_compute(const GPUDarParams& P,
   UPLOAD(gradients, gradients, Q2 * 3);
   ALLOC(bvalues, sizeof(double) * Q2);
   UPLOAD(bvalues, bvalues, Q2);
+  if (P.free_water)
+    {
+    ALLOC(free_water_signal, sizeof(double)*Q2);
+    k_free_water_signal<<<(Q2+127)/128,128>>>(P,DevBufs::from(D));
+    CHK(cudaGetLastError());
+    }
   ALLOC(dwi, sizeof(float) * dwi_elems);
   CHK(cudaMemcpy(D.dwi, dwi, sizeof(float) * dwi_elems, cudaMemcpyHostToDevice));
   D.mask_type = P.mask_type; D.stop_type = P.stop_type;
