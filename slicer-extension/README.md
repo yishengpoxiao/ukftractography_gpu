@@ -41,6 +41,8 @@ GPU targets are selected from the build compiler's supported architectures, with
 
 ## Use
 
+The [parameter reference and examples](https://github.com/yishengpoxiao/ukftractography_gpu/blob/main/USAGE.md) explain CLI flags, model-dependent defaults, and the HCP benchmark settings.
+
 1. Load a DWI NRRD with DWMRI gradients and b-value metadata.
 2. Select the brain mask and optional seed labelmap. Export segmentation nodes to labelmaps first; enter labels separated by commas.
 3. Select the model and precision. The GPU list automatically shows all accessible NVIDIA CUDA GPUs, with index, model, free/total memory and PCI bus address. Choose a single GPU, or enable **Use multiple selected GPUs** and check the cards to use together. **Recommend GPU** selects the detected card with the most free memory; refresh to update this snapshot. **Show all accessible CUDA GPUs** is enabled by default: it clears `CUDA_VISIBLE_DEVICES` only in discovery and tracking child processes. Uncheck it to inherit Slicer's startup visibility and ordering. Container and driver access restrictions remain in effect. Click **Refresh** after changing the backend; the selected physical GPU is preserved by PCI address when available, even if its CUDA index changes. GPU controls are locked during discovery/tracking. Detection runs in a separate process; if it fails, enter a CUDA index manually. Confirmed empty discovery disables tracking.

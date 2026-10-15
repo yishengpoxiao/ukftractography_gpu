@@ -54,6 +54,8 @@ The Windows installer workflow produces build artifacts. Windows GPU execution s
 
 ## Command-line usage
 
+See [parameters and worked examples](USAGE.md) for model flags, defaults, CPU/GPU runs, ROI seeding, FreeWater/NODDI, and Slicer settings.
+
 ```bash
 /path/to/UKFTractography_gpu \
   --dwiFile UKFTractography/Data/Input/two_tensor.nhdr \
