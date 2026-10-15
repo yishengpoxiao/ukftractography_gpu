@@ -123,7 +123,7 @@ description Experimental GPU UKF tractography: Simple, Full Tensor, FreeWater an
 status Experimental
 enabled 1
 ''')
-    for name in ('README.md', 'WINDOWS.md', 'LICENSE.txt'):
+    for name in ('README.md', 'LICENSE.txt'):
         if (stage/name).is_file():
             shutil.copy2(stage/name, share/name)
     install_archive = args.output/('UKFGPU-Slicer' + args.slicer_version + '-' + suffix)
