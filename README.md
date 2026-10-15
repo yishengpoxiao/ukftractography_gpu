@@ -8,7 +8,7 @@ This is a modified version of [pnlbwh/ukftractography](https://github.com/pnlbwh
 
 - GPU filtering, constraints, tracking, and recording for 12 experimental models: Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F.
 - FP64 by default, with optional mixed precision. `--gpuPrecision 1` uses FP32 for Simple1T/2T signal calculations while sensitive calculations remain FP64; other models retain FP64. Mixed precision can exceed the strict position tolerance on real data; use `--gpuPrecision 0` for strict CPU comparison.
-- Tracking kernel and record-transfer optimizations, including batched active-list compaction, parallel NODDI sigma observations, cached FreeWater observations, reused polynomial recurrences, and compact downloads.
+- GPU tracking kernels and compact record transfers; see [how acceleration is implemented](ACCELERATION.md).
 - A Slicer interface with input validation, automatic GPU discovery/free-memory recommendation, single or explicitly selected multi-GPU tracking, real completion counts and elapsed time, scene-persistent parameters, custom fiber names, and direction/FA/length/solid coloring.
 - Linux integration tested with Slicer 5.2.2, 5.6.2 and 5.12.4. Tracking results appear directly in the scene; parameter controls provide hover help. Windows native compilation, CPU execution, and extension installation have been checked in CI with Slicer 5.6.2 and 5.12.4. Windows GPU tracking still requires verification on NVIDIA hardware.
 
@@ -66,6 +66,20 @@ The Windows installer workflow produces build artifacts. Windows GPU execution s
 
 Run the executable with `--help` for the complete option list. The output directory must exist. Runtime library search paths must include the GPU library and CUDA runtime; packaged Slicer runtimes handle this through their launcher.
 
+## HCP YA speed comparison
+
+One HCP Young Adult (HCP YA) b≈3000 s/mm² dataset: **1.25 mm isotropic**, **145 × 174 × 145 voxels**, and **108 volumes** (90 diffusion-weighted + 18 b0). The DWI and brain mask were copied to local disk before timing; network-copy time is excluded. Output was approximately **0.58 million streamlines**.
+
+Simple2T, FP64, **3 seeds per voxel**; CPU: **16 physical cores / 16 threads** on an Intel Xeon Gold 6330; GPU: **one RTX 4090**, selected when idle. Both runs used `--numThreads 16`, a 0.3 mm tracking step, 0.9 mm recording spacing, 250 mm maximum half-fiber length, seed FA 0.18, stopping FA 0.10, stopping mean signal 0.05, `Qm=0.001`, `Ql=10`, `Rs=0.015`, and no branching or optional recording arrays.
+
+| Backend | Tracking | End-to-end |
+| --- | ---: | ---: |
+| CPU, 16 cores | 2047.5 s | 2182.1 s |
+| GPU, one RTX 4090 | 392.7 s | 501.0 s |
+| Speedup (CPU / GPU) | **5.21×** | **4.36×** |
+
+End-to-end includes local input loading, normalization, seeding, tracking, postprocessing, and VTK writing. These are single sequential measurements on a shared server; speedup depends on the workload. CPU/GPU fiber order and per-fiber point counts matched, with maximum stored position error 0 mm. See [acceleration details](ACCELERATION.md).
+
 ## 3D Slicer
 
 See the [Slicer extension guide](slicer-extension/README.md) for installation, usage, and local packaging. The offline installer adapts to Slicer 5.2 or newer and selects an included Linux or Windows x86_64 runtime. NVIDIA graphics drivers are a system prerequisite.
@@ -86,7 +100,7 @@ The current standalone and dependency-superbuild entries are `platforms/standalo
 
 The Windows installer workflow checks native compilation, CPU execution, packaging contracts, and actual extension installation/module loading. Python unit and installation checks are in `slicer-extension/UKFGPU/Testing/`.
 
-Numerical acceptance scripts, benchmark reports, generated results, build outputs, and packaged runtimes are maintained outside this repository. Original upstream CPU regression tests and their input/baseline data are retained for the upstream build route.
+Numerical acceptance scripts, detailed benchmark logs, generated results, build outputs, and packaged runtimes are maintained outside this repository. Original upstream CPU regression tests and their input/baseline data are retained for the upstream build route.
 
 ## Attribution and license
 
