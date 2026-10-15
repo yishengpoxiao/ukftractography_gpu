@@ -6,7 +6,7 @@ Linux integration has been tested with Slicer 5.2.2, 5.6.2 and 5.12.4. Windows n
 
 ## Install
 
-Download packages, instructions and checksums from the [2026-10-14 preview release](https://github.com/yishengpoxiao/ukftractography_gpu/releases/tag/v0.2.0-preview.20261014). The adaptive installer ZIP contains native Linux and Windows runtimes. Separate platform-specific Slicer archives are also available.
+Download packages, instructions and checksums from the [2026-10-15 preview release](https://github.com/yishengpoxiao/ukftractography_gpu/releases/tag/v0.3.0-preview.20261015). The adaptive installer ZIP contains native Linux and Windows runtimes. Separate platform-specific Slicer archives are also available.
 
 For a version-adaptive offline installer, follow [the portable installer guide](INSTALLER.md). It detects the running Slicer version (5.2 or newer), chooses an included native platform runtime, and installs dependencies privately with the extension. The current bundle includes Linux x86_64 and Windows x86_64. NVIDIA drivers remain a system prerequisite.
 
@@ -46,7 +46,7 @@ Unavailable GPUs or a backend CPU fallback are reported as failures. Inspect the
 
 ## Accuracy
 
-Accuracy acceptance requires identical fiber order and per-fiber point counts, positional Euclidean error at most 0.001 mm, and recorded-array checks. Long whole-brain, branching, and additional device/platform combinations require separate validation. The upstream zero-tensor FreeWater case can produce NaN FA; its CPU behavior is preserved, so this case remains a known finite-record limitation.
+Accuracy acceptance requires identical fiber order and per-fiber point counts, positional Euclidean error at most 0.001 mm, and recorded-array checks. Long whole-brain, branching, and additional device/platform combinations require separate validation. Full2T FreeWater can also fail in the upstream CPU constraint solver for some inputs; the original CPU baseline is retained, and these inputs remain a known limitation. The upstream zero-tensor FreeWater case can produce NaN FA; its CPU behavior is preserved, so this case remains a known finite-record limitation.
 
 ## Package
 

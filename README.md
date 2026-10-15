@@ -12,7 +12,7 @@ This is a modified version of [pnlbwh/ukftractography](https://github.com/pnlbwh
 - A Slicer interface with input validation, automatic GPU discovery/free-memory recommendation, single or explicitly selected multi-GPU tracking, real completion counts and elapsed time, scene-persistent parameters, custom fiber names, and direction/FA/length/solid coloring.
 - Linux integration tested with Slicer 5.2.2, 5.6.2 and 5.12.4. Tracking results appear directly in the scene; parameter controls provide hover help. Windows native compilation, CPU execution, and extension installation have been checked in CI with Slicer 5.6.2 and 5.12.4. Windows GPU tracking still requires verification on NVIDIA hardware.
 
-Accuracy acceptance requires the same fiber order and per-fiber point counts, positional Euclidean error at most **0.001 mm**, and recorded-array checks. Results remain workload-specific; long whole-brain, branching, and other platform/device combinations require separate validation. The upstream zero-tensor FreeWater case can produce NaN FA; its CPU behavior is intentionally preserved, and that case does not pass finite-record validation.
+Accuracy acceptance requires the same fiber order and per-fiber point counts, positional Euclidean error at most **0.001 mm**, and recorded-array checks. Results remain workload-specific; long whole-brain, branching, and other platform/device combinations require separate validation. Full2T FreeWater can also fail in the upstream CPU constraint solver for some inputs; the original CPU baseline is retained, and these inputs remain a known limitation. The upstream zero-tensor FreeWater case can produce NaN FA; its CPU behavior is intentionally preserved, and that case does not pass finite-record validation.
 
 ## Build
 
@@ -64,7 +64,7 @@ Run the executable with `--help` for the complete option list. The output direct
 
 ## 3D Slicer
 
-Download installers, installation instructions and SHA-256 checksums from the [2026-10-14 preview release](https://github.com/yishengpoxiao/ukftractography_gpu/releases/tag/v0.2.0-preview.20261014). The version-adaptive installer ZIP contains native Linux and Windows backends. Separate Slicer installation archives are also available.
+Download installers, installation instructions and SHA-256 checksums from the [2026-10-15 preview release](https://github.com/yishengpoxiao/ukftractography_gpu/releases/tag/v0.3.0-preview.20261015). The version-adaptive installer ZIP contains native Linux and Windows backends. Separate Slicer installation archives are also available.
 
 The [offline installer](slicer-extension/INSTALLER.md) adapts its installation layout to the running Slicer 5.2 or newer version and installs bundled native dependencies privately. The bundle includes Linux x86_64 and Windows x86_64 runtimes. NVIDIA graphics drivers are a system prerequisite.
 
