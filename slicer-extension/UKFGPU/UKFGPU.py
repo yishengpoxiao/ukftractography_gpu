@@ -65,9 +65,10 @@ class UKFGPU(ScriptedLoadableModule):
             "GPU UKF tracking with Simple, Full Tensor, FreeWater and NODDI models. "
             "Select a DWI volume with gradients, a brain mask and an optional seed labelmap. "
             "The backend requires Linux or Windows x86_64 and an NVIDIA CUDA GPU. "
-            "Windows requires a separately built native backend; see the README. "
-            "GPU support is experimental: some models have not passed strict CPU equivalence. "
-            "See the extension README and precision acceptance report.")
+            "The offline installer bundles native dependencies for its included platforms; "
+            "a compatible NVIDIA driver is required. "
+            "GPU support is experimental and numerical validation is workload-specific. "
+            "See the extension README for installation and the repository README for current limitations.")
         parent.acknowledgementText = "Based on pnlbwh/ukftractography."
 
 

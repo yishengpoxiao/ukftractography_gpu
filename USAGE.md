@@ -1,6 +1,6 @@
 # Parameters and usage examples
 
-This guide covers the current standalone CLI and the parameters exposed by the Slicer module. Build and installation instructions are in the [main README](README.md#build) and [Slicer guide](slicer-extension/README.md). The [acceleration document](ACCELERATION.md) explains the GPU implementation.
+This guide covers the current standalone CLI and the parameters exposed by the Slicer module. Use the [current Slicer installation guide](slicer-extension/README.md#install) for installer downloads and setup, or the [source build instructions](README.md#build) to compile the backend. The [acceleration document](ACCELERATION.md) explains the GPU implementation.
 
 ## Inputs and output
 

@@ -14,7 +14,15 @@ This is a modified version of [pnlbwh/ukftractography](https://github.com/pnlbwh
 
 Accuracy acceptance requires the same fiber order and per-fiber point counts, positional Euclidean error at most **0.001 mm**, and recorded-array checks. Results remain workload-specific; long whole-brain, branching, and other platform/device combinations require separate validation. Full2T FreeWater can also fail in the upstream CPU constraint solver for some inputs; the original CPU baseline is retained, and these inputs remain a known limitation. The upstream zero-tensor FreeWater case can produce NaN FA; its CPU behavior is intentionally preserved, and that case does not pass finite-record validation.
 
+## 3D Slicer
+
+Follow the [current installation guide](slicer-extension/README.md#install) for the version-adaptive offline installer, Windows workflow downloads, and upgrades. It supports Slicer 5.2 or newer on included Linux/Windows x86_64 platforms and bundles native runtime dependencies. A compatible NVIDIA driver is required.
+
+The same guide covers [Slicer usage](slicer-extension/README.md#use) and [building installers](slicer-extension/README.md#build-installers). All installation steps are maintained there.
+
 ## Build
+
+The following instructions build the backend and installers from source. For an existing installer ZIP, follow the [Slicer installation guide](slicer-extension/README.md#install).
 
 Clone this repository:
 
@@ -34,7 +42,7 @@ cmake -S platforms/superbuild-2026-10-14-r4 -B ../build-ukfgpu \
 cmake --build ../build-ukfgpu --parallel 8
 ```
 
-GPU targets are detected from `nvcc --list-gpu-code`; no fixed CUDA Toolkit version is required. Override with `-DUKF_CUDA_ARCHITECTURES="75-real;89-real;75-virtual"` when needed. The Toolkit must support C++17 and the selected host compiler. The backend is produced in `../build-ukfgpu/backend/bin/`. The standalone backend has been compiled and checked on Linux; a complete dependency superbuild from scratch remains to be verified.
+GPU targets are detected from `nvcc --list-gpu-code`; no fixed CUDA Toolkit version is required. Override with `-DUKF_CUDA_ARCHITECTURES="75-real;89-real;75-virtual"` when needed. The Toolkit must support C++17 and the selected host compiler. The backend is produced in `../build-ukfgpu/backend/bin/`. The standalone backend has been compiled and checked on Linux; a complete Linux dependency superbuild from scratch remains to be verified.
 
 On Windows, run from **x64 Developer PowerShell for VS 2022**:
 
@@ -81,12 +89,6 @@ Simple2T, FP64, **3 seeds per voxel**; CPU: **16 physical cores / 16 threads** o
 | Speedup (CPU / GPU) | **5.21×** | **4.36×** |
 
 End-to-end includes local input loading, normalization, seeding, tracking, postprocessing, and VTK writing. These are single sequential measurements on a shared server; speedup depends on the workload. CPU/GPU fiber order and per-fiber point counts matched, with maximum stored position error 0 mm. See [acceleration details](ACCELERATION.md).
-
-## 3D Slicer
-
-See the [Slicer extension guide](slicer-extension/README.md) for installation, usage, and local packaging. The offline installer adapts to Slicer 5.2 or newer and selects an included Linux or Windows x86_64 runtime. NVIDIA graphics drivers are a system prerequisite.
-
-Binary packages are generated locally or obtained from Windows workflow artifacts. GitHub Releases and the online Slicer Extensions Catalog are not used for distribution. Source checkout alone does not include a compiled backend.
 
 ## Development and data
 
