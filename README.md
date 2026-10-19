@@ -33,7 +33,15 @@ cd ukftractography_gpu
 
 The standalone backend requires a C++17 compiler, CMake 3.22+, CUDA Toolkit compatible with your compiler and GPU, ITK 5, VTK 9, Eigen 3.4, Teem, SlicerExecutionModel, and zlib. Use a CUDA Toolkit that supports your compiler and GPU architecture.
 
-With dependencies already available, configure `platforms/standalone-2026-10-14-r2` and provide their CMake package paths. Alternatively, the dependency superbuild provides pinned dependency sources:
+With dependencies already available, configure `platforms/standalone-2026-10-14-r2` and provide their CMake package paths. Alternatively, the dependency superbuild provides pinned dependency sources.
+
+On **Linux**, find the CUDA compiler with:
+
+```bash
+command -v nvcc
+```
+
+Replace `/path/to/nvcc` below with the returned executable path, for example `/usr/local/cuda/bin/nvcc`. If no path is returned, install the CUDA Toolkit or add its `bin` directory to `PATH`.
 
 ```bash
 cmake -S platforms/superbuild-2026-10-14-r4 -B ../build-ukfgpu \
@@ -44,17 +52,26 @@ cmake --build ../build-ukfgpu --parallel 8
 
 GPU targets are detected from `nvcc --list-gpu-code`; no fixed CUDA Toolkit version is required. Override with `-DUKF_CUDA_ARCHITECTURES="75-real;89-real;75-virtual"` when needed. The Toolkit must support C++17 and the selected host compiler. The backend is produced in `../build-ukfgpu/backend/bin/`. The standalone backend has been compiled and checked on Linux; a complete Linux dependency superbuild from scratch remains to be verified.
 
-On Windows, run from **x64 Developer PowerShell for VS 2022**:
+On **Windows**, open **x64 Developer PowerShell for VS 2022** and locate the compiler and Toolkit directory:
+
+```powershell
+where.exe nvcc
+$env:CUDA_PATH
+```
+
+`where.exe nvcc` prints the executable path, for example `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin\nvcc.exe`. `CudaPath` takes the Toolkit root directory, without `\bin\nvcc.exe`; `$env:CUDA_PATH` usually contains that directory. Build with:
 
 ```powershell
 .\scripts\build_windows_gpu.ps1 `
   -BuildDirectory C:\UKF\build `
   -PackageDirectory C:\UKF\package-5.6 `
   -SlicerVersion 5.6 `
-  -CudaPath 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8'
+  -CudaPath $env:CUDA_PATH
 ```
 
-Replace `CudaPath` with your installed Toolkit directory. Use a short checkout/build path, and install the Visual Studio C++ workload and Windows SDK, CMake, Ninja, Git, and Python 3.9+ on PATH. The driver's CUDA/UMD version does not identify an installed Toolkit; check `nvcc --version`.
+If `CUDA_PATH` is empty, supply the actual root explicitly, for example `-CudaPath 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8'`. The version in this path is only an example; use your installed Toolkit version. If `where.exe nvcc` finds nothing, check that the Toolkit is installed and its `bin` directory is on `PATH`.
+
+Use a short checkout/build path, and install the Visual Studio C++ workload and Windows SDK, CMake, Ninja, Git, and Python 3.9+ on PATH. The driver's CUDA/UMD version does not identify an installed Toolkit; check `nvcc --version`.
 
 The script builds the dependencies and backend without a Slicer SDK, packages native dependencies privately, verifies GPU DLL exports, and checks executable loading with a restricted PATH. `PackageDirectory` must be new. Select the target Slicer's major.minor version with `SlicerVersion`. Override GPU targets with `-CudaArchitectures '89-real;89-virtual'` when needed. The MSVC runtime defaults to `$env:VCToolsRedistDir\x64\Microsoft.VC143.CRT`; use `-MsvcRuntimeDirectory` for another x64 CRT directory.
 
