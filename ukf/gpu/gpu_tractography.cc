@@ -286,7 +286,18 @@ bool run_tractography(ISignalData* signal_data,
     fprintf(stderr, "[GPU host] staging=%.3f s\n",
       std::chrono::duration<double>(std::chrono::steady_clock::now()-staging_start).count());
     }
-  const std::size_t dwi_elems = (std::size_t)P.nx * P.ny * P.nz * G;
+  const std::size_t voxels = (std::size_t)P.nx * P.ny * P.nz;
+  const std::size_t dwi_elems = voxels * G;
+  std::size_t fixed_input_bytes = sizeof(float) * dwi_elems;
+  fixed_input_bytes += sizeof(double) * (size_t)(Q2 * 4); // gradients and b-values
+  if (P.free_water) { fixed_input_bytes += sizeof(double) * (size_t)Q2; }
+  if (P.noddi) { fixed_input_bytes += sizeof(double) * (size_t)G * 10; }
+  if (signal_data->rawMaskData())
+    { fixed_input_bytes += voxels * ((P.mask_type == 3 || P.mask_type == 4) ? 2 : 1); }
+  if (signal_data->rawStopData())
+    { fixed_input_bytes += voxels * (P.stop_type == 5 ? 4 : (P.stop_type == 3 ? 2 : 1)); }
+  if (signal_data->rawGmData()) { fixed_input_bytes += sizeof(float) * voxels; }
+  if (signal_data->rawCsfData()) { fixed_input_bytes += sizeof(float) * voxels; }
 
   /* ---- distribute seeds across GPUs (seeds are embarrassingly parallel).
    *      gpuDevice < 0 -> auto-select devices with enough free memory
@@ -321,8 +332,9 @@ bool run_tractography(ISignalData* signal_data,
     }
   else
     {
-    /* keep devices that (a) have at least 2GB free and (b) can hold a
-     * meaningful fiber batch; always keep at least the emptiest one */
+    /* Include fixed input uploads plus working headroom; always keep at least
+     * the emptiest device if none meet the threshold. */
+    constexpr size_t working_headroom = (size_t)2 << 30;
     std::vector<std::pair<size_t, int>> free_sorted;   // (free bytes, device)
     for (int d = 0; d < ndev; ++d)
       {
@@ -333,7 +345,7 @@ bool run_tractography(ISignalData* signal_data,
     std::sort(free_sorted.rbegin(), free_sorted.rend());
     for (auto& ft : free_sorted)
       {
-      if (ft.first >= (size_t)2 << 30)
+      if (ft.first >= fixed_input_bytes + working_headroom)
         {
         devices.push_back(ft.second);
         }

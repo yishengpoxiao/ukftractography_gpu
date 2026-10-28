@@ -14,6 +14,8 @@ This guide covers the current standalone CLI and the parameters exposed by the S
 
 The CLI consumes the diffusion metadata from the NRRD header. A detached header and its data file form one input. Slicer inputs should be aligned volumes without parent transforms; export segmentation seed regions to a labelmap before selecting them.
 
+Use brain masks with **0 outside and 1 inside**. To preserve the upstream CPU reference, byte masks are interpreted through signed `char` on the supported Linux/Windows builds: unsigned-byte values 128–255 are treated as outside the tracking mask. The GPU follows the same interpretation; convert a 0/255 mask to 0/1 before tracking.
+
 ## Model selection
 
 Use exactly one row's model flags. `--fullTensorModel` permits three distinct eigenvalues per tensor; Simple models constrain the two smaller eigenvalues to be equal. FreeWater adds an isotropic compartment. NODDI uses its own compartment model and orientation count.

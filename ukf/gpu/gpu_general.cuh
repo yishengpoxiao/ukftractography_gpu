@@ -348,9 +348,9 @@ __global__ void k_step_general(GPUDarParams P, DevBufs D, int F, int step)
   const size_t record = (size_t)f*P.max_rec+D.reccount[f];
   for (int c = 0; c < 3; ++c) { D.rec_pos[record*3+c] = x[c]; }
   D.rec_norm[record] = d_frobnorm_colmajor(cov,n);
-  D.rec_nmse[record] = D.nmse[f];
-  D.rec_trace[record] = D.trace[f]; D.rec_trace2[record] = D.trace2[f];
-  D.rec_fa[record] = D.fa[f]; D.rec_fa2[record] = D.fa2[f];
+  if (P.record_nmse) { D.rec_nmse[record] = D.nmse[f]; }
+  if (P.record_trace) { D.rec_trace[record] = D.trace[f]; D.rec_trace2[record] = D.trace2[f]; }
+  if (P.record_fa) { D.rec_fa[record] = D.fa[f]; D.rec_fa2[record] = D.fa2[f]; }
   double* rs = D.rec_state+record*n;
   for (int c = 0; c < n; ++c) { rs[c] = st[c]; }
   if (n == 5 || n == 10 || n == 15)

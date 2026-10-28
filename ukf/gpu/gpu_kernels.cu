@@ -244,8 +244,8 @@ __device__ __forceinline__ double d_mask_value(const DevBufs& D, const GPUDarPar
   double value;
   switch (D.mask_type)
     {
-    case 1:  value = (double)((signed char*)D.mask)[index]; break;
-    case 2:  value = (double)((unsigned char*)D.mask)[index]; break;
+    case 1:  /* CPU reads both byte mask types through plain char. */
+    case 2:  value = (double)((char*)D.mask)[index]; break;
     case 3:  /* fall through: CPU casts both 3/4 to signed short */
     case 4:  value = (double)((short*)D.mask)[index]; break;
     default: value = 0.0; break;
@@ -368,11 +368,17 @@ __global__ void k_record_start(GPUDarParams P, DevBufs D, int F)
   double* rp = D.rec_pos + ((size_t)f * P.max_rec + 0) * 3;
   rp[0] = D.pos[f * 3 + 0]; rp[1] = D.pos[f * 3 + 1]; rp[2] = D.pos[f * 3 + 2];
   D.rec_norm[(size_t)f * P.max_rec + 0] = d_frobnorm_colmajor(D.cov + (size_t)f * n * n, n);
-  D.rec_nmse[(size_t)f * P.max_rec + 0] = double(0);
-  D.rec_trace[(size_t)f * P.max_rec + 0] = D.trace[f];
-  D.rec_trace2[(size_t)f * P.max_rec + 0] = D.trace2[f];
-  D.rec_fa[(size_t)f * P.max_rec + 0] = D.fa[f];
-  D.rec_fa2[(size_t)f * P.max_rec + 0] = D.fa2[f];
+  if (P.record_nmse) { D.rec_nmse[(size_t)f * P.max_rec] = double(0); }
+  if (P.record_trace)
+    {
+    D.rec_trace[(size_t)f * P.max_rec] = D.trace[f];
+    D.rec_trace2[(size_t)f * P.max_rec] = D.trace2[f];
+    }
+  if (P.record_fa)
+    {
+    D.rec_fa[(size_t)f * P.max_rec] = D.fa[f];
+    D.rec_fa2[(size_t)f * P.max_rec] = D.fa2[f];
+    }
   if (P.record_cov)
     {
     double* rc = D.rec_cov + ((size_t)f * P.max_rec + 0) * n * n;
@@ -777,7 +783,7 @@ __global__ void k_update(GPUDarParams P, DevBufs D, int F)
   __syncthreads();
 
   /* dNormMSE */
-  if (threadIdx.x == 0)
+  if (P.record_nmse && threadIdx.x == 0)
     {
     const double* z = D.z + (size_t)f * Q2;
     double num = double(0), den = double(0);
@@ -1037,11 +1043,17 @@ __global__ void k_step_stop(GPUDarParams P, DevBufs D, int F, int stepnr)
       double* rp = D.rec_pos + ((size_t)f * P.max_rec + r) * 3;
       rp[0] = x[0]; rp[1] = x[1]; rp[2] = x[2];
       D.rec_norm[(size_t)f * P.max_rec + r] = d_frobnorm_colmajor(D.cov + (size_t)f * n * n, n);
-      D.rec_nmse[(size_t)f * P.max_rec + r] = D.nmse[f];
-      D.rec_trace[(size_t)f * P.max_rec + r] = D.trace[f];
-      D.rec_trace2[(size_t)f * P.max_rec + r] = D.trace2[f];
-      D.rec_fa[(size_t)f * P.max_rec + r] = D.fa[f];
-      D.rec_fa2[(size_t)f * P.max_rec + r] = D.fa2[f];
+      if (P.record_nmse) { D.rec_nmse[(size_t)f * P.max_rec + r] = D.nmse[f]; }
+      if (P.record_trace)
+        {
+        D.rec_trace[(size_t)f * P.max_rec + r] = D.trace[f];
+        D.rec_trace2[(size_t)f * P.max_rec + r] = D.trace2[f];
+        }
+      if (P.record_fa)
+        {
+        D.rec_fa[(size_t)f * P.max_rec + r] = D.fa[f];
+        D.rec_fa2[(size_t)f * P.max_rec + r] = D.fa2[f];
+        }
       double* rs = D.rec_state + ((size_t)f * P.max_rec + r) * n;
       for (int d = 0; d < n; ++d)
         {
@@ -1358,7 +1370,8 @@ bool gpu_compute(const GPUDarParams& P,
   const size_t transfer_values = 1 << 20; // At most 8 MiB of temporary device/host storage.
   const size_t transfer_bytes = transfer_values*sizeof(double);
   const size_t per_fiber = sizeof(double) * (size_t)(3 + n + n*n + 6 + 3 + Q2 + S2*n + S2*Q2 + std::max(2*n*Q2,n*n)
-    + P.max_rec * (3 + 1 + n + 5 + (P.record_cov ? n*n : 0))) + 4 * sizeof(int) + sizeof(size_t) + (P.branching ? 2*sizeof(GPUBranchSeed) : 0);
+    + P.max_rec * (3 + 1 + n + P.record_nmse + 2*P.record_trace + 2*P.record_fa + (P.record_cov ? n*n : 0)))
+    + 4 * sizeof(int) + sizeof(size_t) + (P.branching ? 2*sizeof(GPUBranchSeed) : 0);
   const size_t capacity = (size_t)((free_b > transfer_bytes ? free_b-transfer_bytes : 0) * 0.85) / per_fiber;
   if (capacity == 0) { err = "insufficient device memory for one fiber"; return false; }
   size_t want = chunk_size > 0 ? (size_t)chunk_size : (size_t)S;
@@ -1386,9 +1399,10 @@ bool gpu_compute(const GPUDarParams& P,
   ALLOC(Z, sizeof(double)*S2*Q2*CF); ALLOC(scratch, sizeof(double)*std::max(2*n*Q2,n*n)*CF);
   const size_t records = (size_t)CF * P.max_rec;
   ALLOC(rec_pos, sizeof(double)*records*3); ALLOC(rec_norm, sizeof(double)*records);
-  ALLOC(rec_state, sizeof(double)*records*n); ALLOC(rec_nmse, sizeof(double)*records);
-  ALLOC(rec_trace, sizeof(double)*records); ALLOC(rec_trace2, sizeof(double)*records);
-  ALLOC(rec_fa, sizeof(double)*records); ALLOC(rec_fa2, sizeof(double)*records);
+  ALLOC(rec_state, sizeof(double)*records*n);
+  if (P.record_nmse) { ALLOC(rec_nmse, sizeof(double)*records); }
+  if (P.record_trace) { ALLOC(rec_trace, sizeof(double)*records); ALLOC(rec_trace2, sizeof(double)*records); }
+  if (P.record_fa) { ALLOC(rec_fa, sizeof(double)*records); ALLOC(rec_fa2, sizeof(double)*records); }
   if (P.record_cov) { ALLOC(rec_cov, sizeof(double)*records*n*n); }
   size_t* device_offsets = NULL;
   double* transfer_buffer = NULL;

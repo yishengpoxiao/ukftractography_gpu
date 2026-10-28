@@ -9,6 +9,8 @@ The CUDA backend keeps the repeated UKF tracking steps on the GPU. Input loading
 - **Parallel filter calculations:** sigma observations use multiple warps, and filter updates use 128-thread blocks. Small matrix operations and independent products run cooperatively, while sensitive reductions retain the CPU calculation order. See [gpu_eigen_math.cuh](ukf/gpu/gpu_eigen_math.cuh).
 - **Reuse model calculations:** FreeWater caches the state-independent isotropic signal. NODDI shares each Legendre recurrence prefix and evaluates independent sigma observations in parallel, reducing repeated polynomial and signal calculations. See [gpu_general.cuh](ukf/gpu/gpu_general.cuh) and [gpu_noddi.cuh](ukf/gpu/gpu_noddi.cuh).
 - **Smaller transfers:** tracking uses device-side work buffers and memory-sized fiber chunks. When recording is sparse, only populated records are packed and downloaded, avoiding unused fixed-stride capacity. See [gpu_record_transfer.cuh](ukf/gpu/gpu_record_transfer.cuh) and [gpu_tractography.cc](ukf/gpu/gpu_tractography.cc).
+- **Optional recording work:** NMSE is computed only when requested. GPU scalar record buffers for NMSE, trace, and FA are allocated and written only when enabled; the batch memory estimate follows those choices. FA calculations needed for stopping and tensor selection are retained.
+- **GPU selection:** automatic multi-GPU selection accounts for the DWI, masks, probability maps, and model tables before applying its working-memory threshold. This avoids selecting a card solely because it has 2 GiB free when the input itself needs much of that memory. Explicit device selection remains available.
 
 ## Precision and timing
 
