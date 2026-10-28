@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Package a Linux or Windows x64 Slicer extension with its native CUDA backend."""
 import argparse
-from datetime import date
 import os
 from pathlib import Path
 import re
@@ -85,11 +84,12 @@ exec "$runtime_dir/bin/UKFTractography_gpu" "$@"
             break
     shutil.copytree(args.repository/'third-party', runtime/'Licenses')
     shutil.copy2(args.repository/'ukf/gpu/gpu_libm_math.cuh', runtime/'Licenses/gpu_libm_math.cuh')
+    shutil.copy2(args.repository/'ukf/gpu/gpu_mixed_math.cuh', runtime/'Licenses/gpu_mixed_math.cuh')
     (runtime/'Eigen-SOURCE.txt').write_text(
         'The CUDA Eigen math implementation is distributed under MPL-2.0.\n'
         'Source: https://github.com/yishengpoxiao/ukftractography_gpu/blob/main/ukf/gpu/gpu_eigen_math.cuh\n'
         'License: Licenses/Eigen-MPL2.txt\n'
-        'GNU libc CUDA math port: Licenses/gpu_libm_math.cuh (LGPL-2.1-or-later).\n', encoding='utf-8')
+        'GNU libc CUDA math ports: Licenses/gpu_libm_math.cuh and Licenses/gpu_mixed_math.cuh (LGPL-2.1-or-later).\n', encoding='utf-8')
 
 
 def package(args):
@@ -100,7 +100,7 @@ def package(args):
     module = stage/'UKFGPU'
     copy_runtime(args, module/'Runtime')
     shutil.copy2(args.repository/'LICENSE.txt', stage/'LICENSE.txt')
-    suffix = args.platform + '-x86_64-' + date.today().isoformat() + '.tar.gz'
+    suffix = args.platform + '-x86_64.tar.gz'
     archive = args.output/('UKFGPU-' + suffix)
     with tarfile.open(archive, 'w:gz') as tar:
         tar.add(stage, arcname=stage.name)

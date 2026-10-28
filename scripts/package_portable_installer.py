@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Bundle native runtimes into an offline installer adapting to the running Slicer version."""
 import argparse
-from datetime import date
 import hashlib
 import json
 import os
@@ -107,7 +106,7 @@ def create_bundle(repository, runtimes, output):
                     raise RuntimeError('Packaged native backend failed to load:\n' + result.stdout.decode(errors='replace'))
         manifest['sha256'] = {path.relative_to(bundle).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                               for path in sorted(bundle.rglob('*')) if path.is_file()}
-        (bundle/('manifest-' + date.today().isoformat()+'.json')).write_text(
+        (bundle/'manifest.json').write_text(
             json.dumps(manifest, indent=2)+'\n', encoding='utf-8')
         with zipfile.ZipFile(output, 'x', compression=zipfile.ZIP_DEFLATED) as archive:
             for path in sorted(bundle.rglob('*')):

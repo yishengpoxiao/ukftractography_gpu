@@ -20,10 +20,10 @@ def platform_key(system=None, machine=None):
 
 
 def verified_manifest(bundle):
-    manifests = list(bundle.glob('manifest-*.json'))
-    if len(manifests) != 1:
-        raise RuntimeError('Expected one bundle manifest; extract the complete installer ZIP.')
-    manifest = json.loads(manifests[0].read_text(encoding='utf-8'))
+    manifest_path = bundle/'manifest.json'
+    if not manifest_path.is_file():
+        raise RuntimeError('Expected bundle manifest.json; extract the complete installer ZIP.')
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
     if manifest['format'] != 1:
         raise RuntimeError('Unsupported installer manifest format.')
     payload = {p.relative_to(bundle).as_posix() for directory in ('module', 'runtimes', 'docs')

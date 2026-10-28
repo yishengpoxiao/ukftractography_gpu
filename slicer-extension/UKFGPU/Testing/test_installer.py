@@ -26,7 +26,7 @@ def fixture(root):
                     runtimes={'linux-x86_64': {'glibc_min': '2.29'}, 'windows-x86_64': {}},
                     sha256={p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                             for p in root.rglob('*') if p.is_file()})
-    (root/'manifest-2026-10-12.json').write_text(json.dumps(manifest))
+    (root/'manifest.json').write_text(json.dumps(manifest))
 
 
 class InstallerTest(unittest.TestCase):

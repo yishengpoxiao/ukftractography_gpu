@@ -11,7 +11,7 @@ Use the latest **version-adaptive offline installer ZIP** containing a native ru
 - **Windows:** open the [Windows native installer workflow](https://github.com/yishengpoxiao/ukftractography_gpu/actions/workflows/windows-installer.yml), select the latest successful run, and download its `UKFGPU-Windows-native-*` artifact. Extract the artifact download to find `UKFGPU-Installer-windows-x86_64.zip`.
 - **Linux:** use an installer ZIP generated from the current native Linux build; see [Build installers](#build-installers). Linux binaries are not currently distributed through GitHub Actions.
 
-GitHub Releases and the online Slicer Extensions Catalog are not used for distribution. Downloading the repository source ZIP does not provide a compiled backend. A bundle supports only the platforms listed in its `manifest-*.json`.
+GitHub Releases and the online Slicer Extensions Catalog are not used for distribution. Downloading the repository source ZIP does not provide a compiled backend. A bundle supports only the platforms listed in its `manifest.json`.
 
 1. Fully extract the installer ZIP into a writable directory. Locate the extracted `UKFGPU-Installer` directory containing `install.py`. This ZIP is installed through that script inside Slicer.
 2. Open Slicer's Python console and run:
@@ -26,7 +26,7 @@ GitHub Releases and the online Slicer Extensions Catalog are not used for distri
 
 The installer verifies checksums, selects the included native runtime, checks native loading and CUDA discovery, and registers the module through Slicer's Extensions Manager. It generates an archive matching the running Slicer version and revision. Checksums detect corruption; obtain the bundle from a trusted source.
 
-The installer supports Slicer 5.2 or newer and the platforms included in its dated manifest. Native CUDA and C++ runtime libraries are installed privately; no separate CUDA Toolkit, Visual Studio, Conda, or pip environment is needed by end users. Slicer supplies Python, Qt, NumPy, and UI VTK; SlicerDMRI is optional. The NVIDIA driver, Linux glibc, and dynamic loader remain system prerequisites. Linux binaries require x86_64 with AVX.
+The installer supports Slicer 5.2 or newer and the platforms included in `manifest.json`. Native CUDA and C++ runtime libraries are installed privately; no separate CUDA Toolkit, Visual Studio, Conda, or pip environment is needed by end users. Slicer supplies Python, Qt, NumPy, and UI VTK; SlicerDMRI is optional. The NVIDIA driver, Linux glibc, and dynamic loader remain system prerequisites. Linux binaries require x86_64 with AVX.
 
 GPU targets are selected from the build compiler's supported architectures, with baseline PTX included. A compatible NVIDIA driver is required; PTX JIT additionally requires support for the Toolkit's PTX version. Older drivers may need a build with an older compatible Toolkit. RTX 4090 execution is validated; other GPUs and Windows GPU execution remain unverified. macOS and ARM CUDA backends are unavailable.
 
@@ -48,7 +48,7 @@ Hover over parameter labels or controls to see their purpose, units, defaults, m
 
 Available presets are **Standard**, **Quick preview**, and **Fine sampling**. Standard uses model-specific filter noise defaults and standard sampling (0.3/0.9 mm step/record spacing for 1T/2T, 0.15/0.45 mm for 3T). Quick preview limits each half-fiber to 50 mm and uses 1.8 mm recording spacing. Fine sampling halves the standard step and record spacing; it costs more computation and does not guarantee better anatomical accuracy. Apply replaces tracking parameters and clears all recording options, while preserving model, precision, device, inputs and fiber name. Selecting a preset alone does not overwrite manual settings.
 
-Controls are enabled by model: tensor FA/eigenvalue parameters and tensor recording, FreeWater noise/recording, and NODDI noise/recording. Branching additionally requires a multi-tensor model and a seed labelmap. The precision selector remains available for Simple1T/2T; other models use FP64. Disabled numeric options are omitted from the backend command.
+Controls are enabled by model: tensor FA/eigenvalue parameters and tensor recording, FreeWater noise/recording, and NODDI noise/recording. Branching additionally requires a multi-tensor model and a seed labelmap. Both FP64 and Mixed (guarded FP32) are available for every model. Disabled numeric options are omitted from the backend command.
 
 Models include Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F. Zero Qm/Ql/Qw/Rs values use backend model defaults. Branching is disabled by default.
 

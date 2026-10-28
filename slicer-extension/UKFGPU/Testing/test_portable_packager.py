@@ -46,6 +46,8 @@ class PortablePackagerTest(unittest.TestCase):
             with zipfile.ZipFile(archive) as bundle:
                 names = bundle.namelist()
                 self.assertIn('UKFGPU-Installer/install.py', names)
+                self.assertIn('UKFGPU-Installer/manifest.json', names)
+                self.assertFalse(any('/manifest-' in name for name in names))
                 self.assertIn('UKFGPU-Installer/runtimes/windows-x86_64/bin/UKFTractography_gpu.exe', names)
                 self.assertFalse(any('/linux-x86_64/' in name for name in names))
 
