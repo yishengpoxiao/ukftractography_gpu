@@ -133,7 +133,7 @@ Write-Host "Git: $((Get-Command git.exe).Source)"
 Write-Host "MSVC: $((Get-Command cl.exe).Source)"
 Write-Host "Jobs: $Jobs"
 if (-not $CudaArchitectures) { Write-Host 'CUDA targets: build_windows_gpu.ps1 supported-architecture defaults' }
-if ($CheckOnly) { Write-Host 'Preflight succeeded; no build or installation was started.'; return }
+if ($CheckOnly) { Write-Host 'Preflight succeeded; no build or installation was started.'; exit 0 }
 
 $Stage = Join-Path $BuildDirectory ('.staging-' + [guid]::NewGuid().ToString('N'))
 $PackageDirectory = Join-Path $Stage 'package'
