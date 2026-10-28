@@ -1,6 +1,6 @@
 # Parameters and usage examples
 
-This guide covers the current standalone CLI and the parameters exposed by the Slicer module. Use the [current Slicer installation guide](slicer-extension/README.md#install) for installer downloads and setup, or the [source build instructions](README.md#build) to compile the backend. The [acceleration document](ACCELERATION.md) explains the GPU implementation.
+This guide covers the current standalone CLI and the parameters exposed by the Slicer module. Use the [current Slicer installation guide](slicer-extension/README.md#install) for installer downloads and setup, or the [source build instructions](README.md#install-and-build) to compile the backend. The [acceleration document](ACCELERATION.md) explains the GPU implementation.
 
 ## Inputs and output
 
@@ -43,10 +43,10 @@ FreeWater tensor models support 1T/2T. NODDI supports one or two orientations; u
 | --- | --- | --- |
 | `--useGPU` | Off | Enable CUDA tracking. Omit this switch for the CPU reference path. |
 | `--gpuDevice` | `0` | CUDA ordinal within the visible device list. `-1` distributes seeds over visible GPUs. |
-| `--gpuPrecision` | `0` | `0`: FP64. `1`: request mixed precision; the current backend promotes interpolation, signal prediction, and filtering to FP64, so both settings use the same trajectory arithmetic. DWI input storage is FP32 in both modes. |
+| `--gpuPrecision` | `0` | `0`: FP64. `1`: guarded FP32 range selection for compatible signal exponentials, with FP64 fallback near rounding boundaries. Interpolation, exponential polynomials, state/covariance, and filtering remain FP64. DWI input storage is FP32 in both modes. |
 | `--numThreads` | Detected CPU count | CPU worker count; set `16` for the benchmark configuration. This does not set CUDA thread or GPU counts. |
 
-FP64 is the default. The mixed request currently has no FP32 trajectory computation or additional compute-speed benefit; it is retained in the CLI and scene settings. See the [accuracy requirements and known limitations](README.md#features-and-current-status).
+FP64 is the default. The mixed path preserves sensitive trajectory arithmetic in FP64 and uses FP32 only for selected operations; any speed benefit depends on the workload and host math policy. See the [accuracy requirements and known limitations](README.md#models-and-status).
 
 `CUDA_VISIBLE_DEVICES` restricts and reorders the visible CUDA devices. With `CUDA_VISIBLE_DEVICES=1`, `--gpuDevice 0` selects the first device in that restricted list. GPU UUIDs can also identify a physical card. Check device availability before starting work on a shared machine. A successful GPU run logs `tractography done on device`; a `falling back` message means CPU fallback and must be excluded from GPU speed measurements.
 
@@ -164,7 +164,7 @@ CUDA_VISIBLE_DEVICES=0 "$UKF" "${UKF_DATA_ARGS[@]}" "${UKF_TENSOR_ARGS[@]}" \
   --tracts "$UKF_OUT/hcp_gpu.vtk"
 ```
 
-The measured benchmark additionally pinned both processes to CPU cores 0–15 with Linux `taskset -c 0-15`. `--numThreads 16` alone selects worker count without CPU affinity. Run the two commands sequentially when comparing times. See the [measured HCP results](README.md#hcp-ya-speed-comparison).
+The measured benchmark additionally pinned both processes to CPU cores 0–15 with Linux `taskset -c 0-15`. `--numThreads 16` alone selects worker count without CPU affinity. Run the commands sequentially when comparing times. For the mixed run, repeat the GPU command with `--gpuPrecision 1` and a new output filename. See the [measured HCP results](README.md#hcp-ya-speed-comparison).
 
 ### ROI seeding and model variants
 
