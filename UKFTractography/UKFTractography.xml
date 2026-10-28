@@ -48,7 +48,7 @@
 
     <label>Seeding Options (pick one option)</label>
     <description>Options for seeding tractography. Only one of the three provided options will be used. Option 1 (Minimum Seed FA) is the default.</description>
-    
+
     <double>
       <name>seedingThreshold</name>
       <longflag deprecatedalias="seedFALimit">
@@ -226,7 +226,7 @@
       <name>useGPU</name>
       <longflag>useGPU</longflag>
       <label>Tracking: Use GPU acceleration</label>
-      <description>Run tractography on an NVIDIA GPU (CUDA). Supported models: 1-tensor/2-tensor simple (no branching, no free water, no NODDI). Falls back to CPU automatically when unsupported. Double precision is used on the GPU for consistency with the CPU output.</description>
+      <description>Run tractography on an NVIDIA GPU (CUDA). The GPU backend supports Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F, including tensor branching for compatible multi-tensor models. Tracking arithmetic uses FP64 for CPU parity.</description>
       <default>false</default>
     </boolean>
 
@@ -234,7 +234,7 @@
       <name>gpuPrecision</name>
       <longflag>gpuPrecision</longflag>
       <label>Tracking: GPU arithmetic precision</label>
-      <description>Arithmetic used on the GPU. 0 = double (default): reproduces the CPU output bit-for-bit. 1 = float: significantly faster on consumer GPUs (FP64 is 1/64 of FP32 there), but individual fiber trajectories may deviate; ensemble statistics stay equivalent.</description>
+      <description>0 (default): FP64. 1: guarded mixed precision. Compatible signal exponentials use FP32 range selection with FP64 fallback near rounding boundaries. Interpolation, exponential polynomials, states, covariance, and filter updates stay FP64. Unsupported host math policies retain FP64. DWI storage is FP32 in both modes.</description>
       <default>0</default>
       <element>0</element>
       <element>1</element>
@@ -256,6 +256,7 @@
       <default>2</default>
       <element>1</element>
       <element>2</element>
+      <element>3</element>
     </integer-enumeration>
 
 
@@ -265,7 +266,7 @@
       <label>Tracking: Step length of tractography (in mm)</label>
       <description>Tractography parameter used in all models. Step size when conducting tractography. Default: 0.3. Range: 0.1-1. </description>
       <default>0.3</default>
-      <constraints> 
+      <constraints>
         <minimum> 0.1 </minimum>
         <maximum> 1 </maximum>
         <step> 0.1 </step>
@@ -556,7 +557,7 @@
       <description>Develop/Debug Only: Write tract file as ASCII text format. Default is not ASCII. Default tracts are written on VTK binary data file.</description>
       <default>false</default>
     </boolean>
-    
+
     <boolean>
       <name>writeUncompressedTracts</name>
       <flag>u</flag>

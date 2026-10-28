@@ -67,7 +67,7 @@ ExternalProject_Add(SlicerExecutionModel
 get_filename_component(UKF_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 # ExternalProject's cache args preserve semicolon-separated architecture lists.
 ExternalProject_Add(backend
-  SOURCE_DIR "${UKF_SOURCE}/platforms/standalone-2026-10-28"
+  SOURCE_DIR "${UKF_SOURCE}/platforms/standalone"
   BINARY_DIR "${CMAKE_BINARY_DIR}/backend"
   DEPENDS zlib Eigen ITK VTK teem SlicerExecutionModel
   CMAKE_CACHE_ARGS ${common_args}

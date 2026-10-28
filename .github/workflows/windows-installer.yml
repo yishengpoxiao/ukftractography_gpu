@@ -11,13 +11,15 @@ on:
     paths:
       - 'platforms/**'
       - 'ukf/**'
+      - 'common/**'
+      - 'UKFTractography/**'
       - 'scripts/build_windows_gpu.ps1'
       - 'scripts/install_cuda_toolkit.ps1'
       - 'scripts/test_windows_slicer.ps1'
       - 'scripts/fetch_slicer.py'
       - 'scripts/verify_slicer_installation.py'
       - 'slicer-extension/**'
-      - '.github/workflows/windows-installer-2026-10-14-r6.yml'
+      - '.github/workflows/windows-installer.yml'
 permissions:
   contents: read
 jobs:
@@ -47,7 +49,7 @@ jobs:
             D:/b/zlib-prefix
             D:/b/teem-prefix
             D:/b/SlicerExecutionModel-prefix
-          key: windows-dependencies-${{ inputs.cuda_version || '12.9.1' }}-${{ hashFiles('platforms/superbuild-2026-10-14-r4/CMakeLists.txt') }}
+          key: windows-dependencies-${{ inputs.cuda_version || '12.9.1' }}-${{ hashFiles('platforms/superbuild/CMakeLists.txt') }}
           restore-keys: windows-dependencies-${{ inputs.cuda_version || '12.9.1' }}-
       - name: Build and package native backend
         shell: pwsh
@@ -95,7 +97,7 @@ jobs:
             D:/b/zlib-prefix
             D:/b/teem-prefix
             D:/b/SlicerExecutionModel-prefix
-          key: windows-dependencies-${{ inputs.cuda_version || '12.9.1' }}-${{ hashFiles('platforms/superbuild-2026-10-14-r4/CMakeLists.txt') }}
+          key: windows-dependencies-${{ inputs.cuda_version || '12.9.1' }}-${{ hashFiles('platforms/superbuild/CMakeLists.txt') }}
       - name: Upload installers and logs
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

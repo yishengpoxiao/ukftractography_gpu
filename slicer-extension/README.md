@@ -8,7 +8,7 @@ Linux integration has been tested with Slicer 5.2.2, 5.6.2 and 5.12.4. Windows n
 
 Use the latest **version-adaptive offline installer ZIP** containing a native runtime for your operating system:
 
-- **Windows:** open the [Windows native installer workflow](https://github.com/yishengpoxiao/ukftractography_gpu/actions/workflows/windows-installer-2026-10-14-r6.yml), select the latest successful run, and download its `UKFGPU-Windows-native-*` artifact. Extract the artifact download to find `UKFGPU-Installer-windows-x86_64.zip`.
+- **Windows:** open the [Windows native installer workflow](https://github.com/yishengpoxiao/ukftractography_gpu/actions/workflows/windows-installer.yml), select the latest successful run, and download its `UKFGPU-Windows-native-*` artifact. Extract the artifact download to find `UKFGPU-Installer-windows-x86_64.zip`.
 - **Linux:** use an installer ZIP generated from the current native Linux build; see [Build installers](#build-installers). Linux binaries are not currently distributed through GitHub Actions.
 
 GitHub Releases and the online Slicer Extensions Catalog are not used for distribution. Downloading the repository source ZIP does not provide a compiled backend. A bundle supports only the platforms listed in its `manifest-*.json`.
@@ -52,7 +52,7 @@ Controls are enabled by model: tensor FA/eigenvalue parameters and tensor record
 
 Models include Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F. Zero Qm/Ql/Qw/Rs values use backend model defaults. Branching is disabled by default.
 
-FP64 is the default. The **Mixed request (FP64 compute)** option is retained for scene and CLI compatibility; the current backend promotes interpolation, signal prediction, and filtering to FP64, so it uses the same trajectory arithmetic as FP64 and does not provide extra FP32 compute speed. DWI values are stored as FP32 in both modes. Scene settings preserve the selected precision request.
+FP64 is the default. **Mixed (guarded FP32)** is available for all models. Compatible signal exponentials select their range in FP32, with FP64 fallback near rounding boundaries. Their polynomials, interpolation, states, covariance, and filter updates stay FP64; unsupported host math policies also retain FP64. This is a limited mixed path, so additional speed depends on the workload. DWI values are stored as FP32 in both modes. Scene settings preserve the selected precision.
 
 With SlicerDMRI's FiberBundle node class available, fibers are imported as a FiberBundle; otherwise, a Model node is used. Automated integration covers both Model and SlicerDMRI FiberBundle display, Save and reload in Slicer 5.2.2. UKF VTK coordinates are RAS and are read directly to avoid a generic reader's LPS conversion. Input export preserves original node storage paths. Inputs with parent transforms are unsupported; use aligned volumes without parent transforms.
 

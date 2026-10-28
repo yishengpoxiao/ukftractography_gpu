@@ -46,9 +46,8 @@ find_package(Teem REQUIRED)
 find_package(SlicerExecutionModel REQUIRED)
 include(${GenerateCLP_USE_FILE})
 
-# Keep the original XML untouched. A build-tree copy gives GenerateCLP the
-# expected UKFTractographyCLP.h basename with the current GPU CLI options.
-configure_file("${UKF_SOURCE}/UKFTractography/UKFTractography-2026-10-28.xml"
+# Generate into the build tree so GenerateCLP emits the expected header basename.
+configure_file("${UKF_SOURCE}/UKFTractography/UKFTractography.xml"
   "${CMAKE_CURRENT_BINARY_DIR}/UKFTractography.xml" COPYONLY)
 set(cli_sources "${UKF_SOURCE}/ukf/cli.cc")
 generateclp(cli_sources "${CMAKE_CURRENT_BINARY_DIR}/UKFTractography.xml")
@@ -79,7 +78,7 @@ target_include_directories(UKFBase PUBLIC "${UKF_SOURCE}/ukf" "${UKF_SOURCE}/com
   "${CMAKE_CURRENT_BINARY_DIR}" ${Teem_INCLUDE_DIRS})
 target_link_libraries(UKFBase PUBLIC ukf_gpu CUDA::cudart Eigen3::Eigen Threads::Threads
   ${ITK_LIBRARIES} ${VTK_LIBRARIES} ${SlicerExecutionModel_LIBRARIES} teem ZLIB::ZLIB)
-add_executable(UKFTractography_gpu "${UKF_SOURCE}/platforms/standalone-2026-10-11/main.cc" "${UKF_SOURCE}/UKFTractography/UKFTractography.cxx")
+add_executable(UKFTractography_gpu "${UKF_SOURCE}/platforms/standalone/main.cc" "${UKF_SOURCE}/UKFTractography/UKFTractography.cxx")
 target_link_libraries(UKFTractography_gpu PRIVATE UKFBase)
 if(MSVC)
   target_compile_definitions(UKFBase PUBLIC NOMINMAX _USE_MATH_DEFINES)
@@ -87,7 +86,7 @@ if(MSVC)
   target_compile_options(UKFBase PRIVATE /bigobj /fp:strict /utf-8)
   target_compile_options(UKFTractography_gpu PRIVATE /fp:strict /utf-8)
   target_compile_options(ukf_gpu PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>)
-  target_sources(UKFTractography_gpu PRIVATE "${UKF_SOURCE}/platforms/standalone-2026-10-11/UKFGPU-2026-10-11.manifest")
+  target_sources(UKFTractography_gpu PRIVATE "${UKF_SOURCE}/platforms/standalone/UKFGPU.manifest")
 endif()
 set_target_properties(ukf_gpu UKFTractography_gpu PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"

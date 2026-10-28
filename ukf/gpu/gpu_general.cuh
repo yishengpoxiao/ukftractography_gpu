@@ -57,7 +57,7 @@ __global__ void k_free_water_signal(GPUDarParams P, DevBufs D)
   if (q >= 2*P.G) { return; }
   const double* u = D.gradients+q*3;
   const double exponent = -D.bvalues[q]*(u[0]*(P.diff_fw*u[0])+u[1]*(P.diff_fw*u[1])+u[2]*(P.diff_fw*u[2]));
-  D.free_water_signal[q] = P.eigen_exp_packet > 1 ? d_full2fw_exp(P,exponent,2,q) : d_host_exp(P.libm_exp,exponent);
+  D.free_water_signal[q] = P.eigen_exp_packet > 1 ? d_full2fw_exp(P,exponent,2,q) : d_signal_exp(P.libm_exp,P.mixed_requested,exponent);
 }
 
 template<typename T>
@@ -73,7 +73,7 @@ __device__ T d_tensor_signal(const GPUDarParams& P, const T* matrices, const dou
     const T du1 = D[3]*u[0]+D[4]*u[1]+D[5]*u[2];
     const T du2 = D[6]*u[0]+(D[7]*u[1]+D[8]*u[2]);
     const T exponent = -(T)b*(u[0]*du0+u[1]*du1+u[2]*du2);
-    const T value = P.eigen_exp_packet > 1 ? (T)d_full2fw_exp(P,(double)exponent,t,q) : d_host_exp(P.libm_exp,exponent);
+    const T value = P.eigen_exp_packet > 1 ? (T)d_full2fw_exp(P,(double)exponent,t,q) : d_signal_exp(P.libm_exp,P.mixed_requested,exponent);
     // The original 1T free-water model does not apply a tensor mixture weight.
     signal += value * (P.num_tensors == 1 && P.free_water ? T(1) : T(P.w1));
     }
@@ -141,7 +141,7 @@ __device__ void d_noddi_signal(const GPUDarParams& P, const DevBufs& D, const do
       {
       const double* table = D.noddi_table+(q%P.G)*10;
       const double ct = D.gradients[q*3]*coeff[9]+D.gradients[q*3+1]*coeff[10]+D.gradients[q*3+2]*coeff[11];
-      const double ec = d_host_exp(P.libm_exp,-table[0]*((coeff[7]-coeff[8])*(ct*ct)+coeff[8]));
+      const double ec = d_signal_exp(P.libm_exp,P.mixed_requested,-table[0]*((coeff[7]-coeff[8])*(ct*ct)+coeff[8]));
       const double ic = work[q] > 0 ? work[q] : 0.1*coeff[12];
       const double v = s[3]*ic+(1-s[3])*ec;
       result[q] += v*(P.num_tensors == 1 ? 1.0 : P.w1);

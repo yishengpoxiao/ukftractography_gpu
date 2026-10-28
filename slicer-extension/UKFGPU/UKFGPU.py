@@ -109,9 +109,9 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         self.model.setCurrentIndex(1)
         self.addRow(form, "Model", self.model, "1T/2T/3T indicate the number of tensor components. Simple uses axially symmetric tensors; Full allows three independent eigenvalues. FW adds free water; NODDI models neurite compartments. Default: Simple2T. Some models have not passed strict CPU/GPU acceptance.")
         self.precision = qt.QComboBox()
-        self.precision.addItems(["FP64", "Mixed request (FP64 compute)"])
+        self.precision.addItems(["FP64", "Mixed (guarded FP32)"])
         self.precision.setCurrentIndex(0)
-        self.addRow(form, "Precision", self.precision, "Default: FP64. The mixed request is currently auto-promoted: interpolation, signal prediction, and filtering still use FP64, so it follows the same trajectory arithmetic as FP64 and adds no FP32 compute-speed benefit. DWI input storage is FP32 in both modes.")
+        self.addRow(form, "Precision", self.precision, "Default: FP64. Mixed mode uses FP32 to select ranges in compatible signal exponentials, with FP64 fallback near rounding boundaries. Interpolation, exponential polynomials, states, covariance, and filter updates stay FP64. Unsupported host math policies retain FP64. DWI storage is FP32 in both modes.")
         self.allGpus = qt.QCheckBox("Show all accessible CUDA GPUs")
         self.allGpus.checked = True
         self.addRow(form, "GPU visibility", self.allGpus, "Enabled: ignore CUDA_VISIBLE_DEVICES in discovery and tracking child processes. Disabled: use Slicer's startup CUDA visibility and ordering. Container and driver access restrictions still apply. Only NVIDIA CUDA GPUs can run this backend.")
@@ -298,10 +298,6 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
             self.records[name].enabled = enabled
             if not enabled:
                 self.records[name].checked = False
-        simple = self.model.currentText in ("Simple1T", "Simple2T")
-        self.precision.enabled = simple
-        if not simple:
-            self.precision.currentIndex = 0
         self.seedLabels.enabled = self.seeds.currentNode() is not None
         self.fiberName.setPlaceholderText("UKF_" + self.model.currentText)
 
@@ -864,7 +860,7 @@ class UKFGPULogic(ScriptedLoadableModuleLogic):
                 node.SetAndObservePolyData(reader.GetOutput())
                 node.CreateDefaultDisplayNodes()
                 node.SetAttribute("UKFGPU.Model", self.model)
-                node.SetAttribute("UKFGPU.Precision", "FP64" if self.precision == 0 else "Mixed request (FP64 compute)")
+                node.SetAttribute("UKFGPU.Precision", "FP64" if self.precision == 0 else "Mixed (guarded FP32)")
                 node.SetAttribute("UKFGPU.GPUDevice", str(self.device))
                 node.SetAttribute("UKFGPU.GPUVisibility", self.gpuVisibility)
                 node.SetAttribute("UKFGPU.GPUUUIDs", json.dumps(self.gpuUuids))

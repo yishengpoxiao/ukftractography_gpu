@@ -159,7 +159,7 @@ bool run_tractography(ISignalData* signal_data,
   P.gm_thr = s.gm_prob_threshold;
   P.csf_thr = s.csf_prob_threshold;
   P.use_gmcsf = (int)signal_data->isGMCSFProvided();
-  // Even Simple1T/2T amplify FP32 observation errors over long trajectories.
+  // Mixed mode keeps observation values at the FP64 reference precision.
   P.mixed_requested = s.gpu_precision == 1;
   P.num_stop_labels = (int)s.stopLabels.size();
   if (P.num_stop_labels > UKF_GPU_MAX_STOP_LABELS)

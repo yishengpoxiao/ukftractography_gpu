@@ -3,11 +3,10 @@
  * \brief CUDA implementation of the UKF tractography hot loop for the
  *        unconstrained Simple 1-tensor / 2-tensor models.
  *
- * Precision: both modes retain the CPU's FP32 DWI storage and use FP64
- * interpolation, signal prediction, state, covariance, and filter updates.
- * Mixed requests promote the trajectory-sensitive calculations to FP64:
- * FP32 observations can change directions and stopping decisions even when
- * the filter matrices remain FP64.
+ * Precision: mixed mode uses guarded FP32 range selection in compatible
+ * signal exponentials. Interpolation, exponent residuals/polynomials, state,
+ * covariance, and filter updates remain FP64. Boundary cases use the original
+ * FP64 range selection. Both modes retain the CPU's FP32 DWI storage.
  * -fmad=false keeps the FP64 operation order close to the CPU reference.
  *
  * Numerics: every reduction accumulates in ascending order (matching the
@@ -30,6 +29,7 @@
 #include "gpu_qp.cuh"
 #include "gpu_noddi.cuh"
 #include "gpu_eigen_math.cuh"
+#include "gpu_mixed_math.cuh"
 
 #define CHK(expr) do { cudaError_t e_ = (expr); if (e_ != cudaSuccess) { err = cudaGetErrorString(e_); return false; } } while (0)
 
@@ -210,10 +210,28 @@ __device__ void d_H_sigma_prep(int model, const T* st,
     }
 }
 
+/* Simple-model H preparation splits frame construction and matrix entries
+ * across the warp. D1/D2 temporarily hold R and are overwritten only after
+ * every output lane has loaded its operands. */
+template<typename T>
+__device__ __forceinline__ void d_H_simple_frame(const double* st, T* R, T* lambda)
+{
+  T m0 = (T)st[0], m1 = (T)st[1], m2 = (T)st[2];
+  d_initNormalized(m0, m1, m2);
+  if (m0 < 0) { m0 = -m0; m1 = -m1; m2 = -m2; }
+  const T denom = T(1) + m0;
+  R[0] = m0; R[1] = m1; R[2] = m2;
+  R[3] = m1; R[4] = m1 * m1 / denom - T(1); R[5] = m1 * m2 / denom;
+  R[6] = m2; R[7] = m1 * m2 / denom; R[8] = m2 * m2 / denom - T(1);
+  lambda[0] = st[3] > 100.0 ? (T)st[3] : T(100);
+  lambda[1] = st[4] > 100.0 ? (T)st[4] : T(100);
+  lambda[2] = lambda[1];
+}
+
 /* signal value for one gradient from a precomputed sigma */
 template<typename T>
 __device__ T d_H_grad(int model, const T* D1, const T* D2,
-                      T w1, T w2, const T* grads, const T* b, int j, int math_policy = 0)
+                      T w1, T w2, const T* grads, const T* b, int j, int math_policy = 0, bool mixed = false)
 {
   const T u0 = grads[j * 3 + 0];
   const T u1 = grads[j * 3 + 1];
@@ -222,13 +240,13 @@ __device__ T d_H_grad(int model, const T* D1, const T* D2,
   const T du0 = D1[0] * u0 + D1[1] * u1 + D1[2] * u2;
   const T du1 = D1[3] * u0 + D1[4] * u1 + D1[5] * u2;
   const T du2 = D1[6] * u0 + (D1[7] * u1 + D1[8] * u2);
-  T val = d_host_exp(math_policy,-bj * (u0 * du0 + u1 * du1 + u2 * du2)) * w1;
+  T val = d_signal_exp(math_policy,mixed,-bj * (u0 * du0 + u1 * du1 + u2 * du2)) * w1;
   if (model == UKF_GPU_MODEL_SIMPLE2T)
     {
     const T ev0 = D2[0] * u0 + D2[1] * u1 + D2[2] * u2;
     const T ev1 = D2[3] * u0 + D2[4] * u1 + D2[5] * u2;
     const T ev2 = D2[6] * u0 + (D2[7] * u1 + D2[8] * u2);
-    val += d_host_exp(math_policy,-bj * (u0 * ev0 + u1 * ev1 + u2 * ev2)) * w2;
+    val += d_signal_exp(math_policy,mixed,-bj * (u0 * ev0 + u1 * ev1 + u2 * ev2)) * w2;
     }
   return val;
 }
@@ -620,24 +638,57 @@ __global__ void k_H(GPUDarParams P, DevBufs D, int F)
   const int warp = threadIdx.x >> 5;
   const int lane = threadIdx.x & 31;
   const int nwarps = blockDim.x >> 5;
-  T* smemH = (T*)ukf_smem_raw;                /* nwarps * (9 + 9 + 2) */
-  T* D1s = smemH + warp * 20;
+  T* smemH = (T*)ukf_smem_raw;                /* nwarps * (9 + 9 + 2 + 3 + 3) */
+  T* D1s = smemH + warp * 26;
   T* D2s = D1s + 9;
   T* ws = D2s + 9;
+  T* lambda1 = ws + 2;
+  T* lambda2 = lambda1 + 3;
   for (int i = warp; i < S; i += nwarps)
     {
-    if (lane == 0)
+    if (P.model == UKF_GPU_MODEL_SIMPLE1T || P.model == UKF_GPU_MODEL_SIMPLE2T)
       {
-      T state[UKF_GPU_MAX_STATE];
-      for (int d = 0; d < n; ++d) { state[d] = (T)X[(size_t)i * n + d]; }
-      d_H_sigma_prep(P.model, state, D1s, D2s, *ws, ws[1]);
+      const double* state = X + (size_t)i * n;
+      const bool two = P.model == UKF_GPU_MODEL_SIMPLE2T;
+      if (lane == 0 || (lane == 16 && two))
+        { d_H_simple_frame(state + (lane == 16 ? 5 : 0), lane == 16 ? D2s : D1s,
+                           lane == 16 ? lambda2 : lambda1); }
+      __syncwarp();
+      T value = T(0);
+      if (lane < 9 || (two && lane >= 16 && lane < 25))
+        {
+        const bool second = lane >= 16;
+        const int e = second ? lane - 16 : lane;
+        const int a = e / 3, b = e % 3;
+        const T* R = second ? D2s : D1s;
+        const T* lambda = second ? lambda2 : lambda1;
+        const T ra0 = R[a * 3], ra1 = R[a * 3 + 1], ra2 = R[a * 3 + 2];
+        const T rb0 = R[b * 3], rb1 = R[b * 3 + 1], rb2 = R[b * 3 + 2];
+        value = ((ra0 * lambda[0]) * rb0
+                 + ((ra1 * lambda[1]) * rb1 + (ra2 * lambda[2]) * rb2)) * T(1e-6);
+        }
+      __syncwarp();
+      if (lane < 9) { D1s[lane] = value; }
+      if (two && lane >= 16 && lane < 25) { D2s[lane - 16] = value; }
+      if (lane == 0) { ws[0] = P.model == UKF_GPU_MODEL_SIMPLE2T ? T(0.5) : T(1); }
+      if (lane == 1) { ws[1] = T(0.5); }
+      __syncwarp();
       }
-    __syncwarp();
+    else
+      {
+      if (lane == 0)
+        {
+        T state[UKF_GPU_MAX_STATE];
+        for (int d = 0; d < n; ++d) { state[d] = (T)X[(size_t)i * n + d]; }
+        d_H_sigma_prep(P.model, state, D1s, D2s, *ws, ws[1]);
+        }
+      __syncwarp();
+      }
     for (int j = lane; j < P.G; j += 32)
       {
       const T grad[3] = {(T)D.gradients[j*3], (T)D.gradients[j*3+1], (T)D.gradients[j*3+2]};
       const T bval[1] = {(T)D.bvalues[j]};
-      const double value = d_H_grad(P.model, D1s, D2s, ws[0], ws[1], grad, bval, 0, P.libm_exp);
+      const double value = d_H_grad(P.model, D1s, D2s, ws[0], ws[1], grad, bval, 0, P.libm_exp, P.mixed_requested);
       Z[(size_t)i * Q2 + j] = value;
       Z[(size_t)i * Q2 + j + P.G] = value;
       }
@@ -1205,7 +1256,7 @@ bool run_waves(const GPUDarParams& P, GPUDevPointers& raw, int F, std::string& e
   const size_t smem_update = sizeof(double) * (4 * nn + 4 * n + 2 * Q2 + S2 + S2*n) + sizeof(int) * (n + 1);
   const size_t smem_step = sizeof(double) * (P.noddi ? 2*Q2+16 : Q2+32);
   const size_t smem_h = sizeof(double)*(block_h/32)*
-    (P.model == UKF_GPU_MODEL_GENERAL ? (P.noddi ? Q2+16 : 32) : 20);
+    (P.model == UKF_GPU_MODEL_GENERAL ? (P.noddi ? Q2+16 : 32) : 26);
   k_record_start<<<(F + block - 1) / block, block>>>(P, D, F);
   CHK(cudaGetLastError());
   WaveProfile profile;
@@ -1399,10 +1450,10 @@ bool gpu_compute(const GPUDarParams& P,
     }
   const int CF = (int)std::min(std::min(want, capacity), std::min((size_t)S, (size_t)131072));
   fprintf(stderr, "[GPU worker] dev=%d precision=%s slice_F=%d CF=%d per_fiber=%.0fKB\n",
-          device, P.mixed_requested ? "mixed-fp64-compute" : "fp64", S, CF, per_fiber / 1024.0);
+          device, P.mixed_requested ? (P.libm_exp ? "mixed-guarded-fp32" : "mixed-fp64-fallback") : "fp64", S, CF, per_fiber / 1024.0);
   if (P.mixed_requested)
     {
-    fprintf(stderr, "[GPU precision] Mixed request: FP32 DWI storage; interpolation, signal prediction and tracking use FP64 for CPU parity.\n");
+    fprintf(stderr, "[GPU precision] Mixed: guarded FP32 range selection in compatible signal exponentials; interpolation, exponential polynomials and UKF remain FP64.\n");
     }
   if (P.branching) { ALLOC(branch_count,sizeof(int)); ALLOC(branches,2*CF*sizeof(GPUBranchSeed)); }
   ALLOC(pos, sizeof(double)*3*CF);

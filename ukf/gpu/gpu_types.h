@@ -54,7 +54,7 @@ struct GPUDarParams
   int record_nmse, record_trace, record_fa, record_cov;
   double gm_thr, csf_thr;
   int use_gmcsf;      /* isGMCSFProvided */
-  int mixed_requested; /* Both modes use FP32 DWI storage and FP64 tracking. */
+  int mixed_requested; /* Guarded FP32 signal-exp range selection; sensitive math is FP64. */
   int stop_labels[UKF_GPU_MAX_STOP_LABELS];
   int num_stop_labels;
   int max_rec;        /* record capacity per fiber */

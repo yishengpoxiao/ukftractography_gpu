@@ -208,7 +208,7 @@ env -u UKF_GPU_DEVICES CUDA_VISIBLE_DEVICES=0,1 \
   --tracts "$UKF_OUT/hcp_multi_gpu.vtk"
 ```
 
-Each GPU keeps its own input copy; GPU memory is not pooled. `--gpuPrecision 1` is accepted for Simple1T/2T but currently auto-promotes all trajectory-affecting arithmetic to FP64, matching `--gpuPrecision 0` without an additional FP32 compute-speed benefit.
+Each GPU keeps its own input copy; GPU memory is not pooled. `--gpuPrecision 1` enables guarded mixed precision for all models: compatible signal exponentials select their range in FP32 and fall back to FP64 near rounding boundaries. Their residuals and polynomials, interpolation, state/covariance, and UKF updates remain FP64. Other host math policies and the Eigen packet exponential retain their FP64 paths. This limits FP32 work to operations that preserve the reference signal values; speed depends on the model and hardware.
 
 ## Windows PowerShell example
 
