@@ -1,6 +1,6 @@
 # UKF GPU: 3D Slicer Extension
 
-This extension connects the CUDA UKF backend to Slicer. It provides 12 experimental models, FP64/mixed precision, GPU selection, tracking and recording options, asynchronous execution, cancellation, logs, and fiber display. It also validates input geometry and seed selection, reports actual tracking counts/elapsed time, saves settings with the scene, and provides direction/FA/length/solid coloring.
+This extension connects the CUDA UKF backend to Slicer. It provides 12 experimental models, FP64 and a retained mixed-precision request, GPU selection, tracking and recording options, asynchronous execution, cancellation, logs, and fiber display. It also validates input geometry and seed selection, reports actual tracking counts/elapsed time, saves settings with the scene, and provides direction/FA/length/solid coloring.
 
 Linux integration has been tested with Slicer 5.2.2, 5.6.2 and 5.12.4. Windows native compilation, CPU execution, and actual installation/module loading have been checked in CI with Slicer 5.6.2 and 5.12.4. Windows GPU tracking still needs verification on NVIDIA hardware.
 
@@ -48,11 +48,11 @@ Hover over parameter labels or controls to see their purpose, units, defaults, m
 
 Available presets are **Standard**, **Quick preview**, and **Fine sampling**. Standard uses model-specific filter noise defaults and standard sampling (0.3/0.9 mm step/record spacing for 1T/2T, 0.15/0.45 mm for 3T). Quick preview limits each half-fiber to 50 mm and uses 1.8 mm recording spacing. Fine sampling halves the standard step and record spacing; it costs more computation and does not guarantee better anatomical accuracy. Apply replaces tracking parameters and clears all recording options, while preserving model, precision, device, inputs and fiber name. Selecting a preset alone does not overwrite manual settings.
 
-Controls are enabled by model: tensor FA/eigenvalue parameters and tensor recording, FreeWater noise/recording, and NODDI noise/recording. Branching additionally requires a multi-tensor model and a seed labelmap. Switching models clears incompatible record flags and disables unsupported precision selection; Simple3T, Full Tensor, FreeWater and NODDI use FP64. Disabled numeric options are omitted from the backend command.
+Controls are enabled by model: tensor FA/eigenvalue parameters and tensor recording, FreeWater noise/recording, and NODDI noise/recording. Branching additionally requires a multi-tensor model and a seed labelmap. The precision selector remains available for Simple1T/2T; other models use FP64. Disabled numeric options are omitted from the backend command.
 
-Models include Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F. Mixed precision lowers Simple1T/2T signal calculations to FP32; sensitive calculations and other models retain FP64. Zero Qm/Ql/Qw/Rs values use backend model defaults. Branching is disabled by default.
+Models include Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F. Zero Qm/Ql/Qw/Rs values use backend model defaults. Branching is disabled by default.
 
-FP64 is the default precision. Mixed precision can exceed the 0.001 mm position tolerance on real data and can change recorded states; select it explicitly for exploratory workloads and compare against FP64 before using its results quantitatively. Scene settings preserve previously selected precision values.
+FP64 is the default. The **Mixed request (FP64 compute)** option is retained for scene and CLI compatibility; the current backend promotes interpolation, signal prediction, and filtering to FP64, so it uses the same trajectory arithmetic as FP64 and does not provide extra FP32 compute speed. DWI values are stored as FP32 in both modes. Scene settings preserve the selected precision request.
 
 With SlicerDMRI's FiberBundle node class available, fibers are imported as a FiberBundle; otherwise, a Model node is used. Automated integration covers both Model and SlicerDMRI FiberBundle display, Save and reload in Slicer 5.2.2. UKF VTK coordinates are RAS and are read directly to avoid a generic reader's LPS conversion. Input export preserves original node storage paths. Inputs with parent transforms are unsupported; use aligned volumes without parent transforms.
 

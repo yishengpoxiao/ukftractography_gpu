@@ -7,7 +7,7 @@ This is a modified version of [pnlbwh/ukftractography](https://github.com/pnlbwh
 ## Features and current status
 
 - GPU filtering, constraints, tracking, and recording for 12 experimental models: Simple1T/2T/3T, Full1T/2T/3T, Simple1T/2T-FreeWater, Full1T/2T-FreeWater, and NODDI1F/2F.
-- FP64 by default, with optional mixed precision. `--gpuPrecision 1` uses FP32 for Simple1T/2T signal calculations while sensitive calculations remain FP64; other models retain FP64. Mixed precision can exceed the strict position tolerance on real data; use `--gpuPrecision 0` for strict CPU comparison.
+- FP64 trajectory arithmetic by default. `--gpuPrecision 1` retains the mixed-precision request but currently auto-promotes interpolation, signal prediction, and filtering to FP64; it uses the same trajectory arithmetic as `--gpuPrecision 0` and does not add FP32 compute speed. The DWI input is stored as FP32 in both modes.
 - GPU tracking kernels and compact record transfers; see [how acceleration is implemented](ACCELERATION.md).
 - A Slicer interface with input validation, automatic GPU discovery/free-memory recommendation, single or explicitly selected multi-GPU tracking, real completion counts and elapsed time, scene-persistent parameters, custom fiber names, and direction/FA/length/solid coloring.
 - Linux integration tested with Slicer 5.2.2, 5.6.2 and 5.12.4. Tracking results appear directly in the scene; parameter controls provide hover help. Windows native compilation, CPU execution, and extension installation have been checked in CI with Slicer 5.6.2 and 5.12.4. Windows GPU tracking still requires verification on NVIDIA hardware.
@@ -33,7 +33,7 @@ cd ukftractography_gpu
 
 The standalone backend requires a C++17 compiler, CMake 3.22+, CUDA Toolkit compatible with your compiler and GPU, ITK 5, VTK 9, Eigen 3.4, Teem, SlicerExecutionModel, and zlib. Use a CUDA Toolkit that supports your compiler and GPU architecture.
 
-With dependencies already available, configure `platforms/standalone-2026-10-14-r2` and provide their CMake package paths. Alternatively, the dependency superbuild provides pinned dependency sources.
+With dependencies already available, configure `platforms/standalone-2026-10-28` and provide their CMake package paths. Alternatively, the dependency superbuild provides pinned dependency sources. Use a new build directory when switching dated build entries.
 
 On **Linux**, find the CUDA compiler with:
 
@@ -44,7 +44,7 @@ command -v nvcc
 Replace `/path/to/nvcc` below with the returned executable path, for example `/usr/local/cuda/bin/nvcc`. If no path is returned, install the CUDA Toolkit or add its `bin` directory to `PATH`.
 
 ```bash
-cmake -S platforms/superbuild-2026-10-14-r4 -B ../build-ukfgpu \
+cmake -S platforms/superbuild-2026-10-28 -B ../build-ukfgpu \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CUDA_COMPILER=/path/to/nvcc
 cmake --build ../build-ukfgpu --parallel 8
@@ -117,7 +117,7 @@ python scripts/fetch_benchmark_data.py
 
 This downloads the data from a pinned upstream commit and checks its SHA-256 hash. The matching header and masks remain in `UKFTractography/Data/Input/`.
 
-The current standalone and dependency-superbuild entries are `platforms/standalone-2026-10-14-r2` and `platforms/superbuild-2026-10-14-r4`. The executable entry point and Windows UTF-8 manifest in `platforms/standalone-2026-10-11` are shared by the current build. Root CMake/SuperBuild files provide the original upstream build route.
+The current standalone and dependency-superbuild entries are `platforms/standalone-2026-10-28` and `platforms/superbuild-2026-10-28`. They use the dated CLI description `UKFTractography/UKFTractography-2026-10-28.xml`. The executable entry point and Windows UTF-8 manifest in `platforms/standalone-2026-10-11` are shared by the current build. Root CMake/SuperBuild files provide the original upstream build route.
 
 The Windows installer workflow checks native compilation, CPU execution, packaging contracts, and actual extension installation/module loading. Python unit and installation checks are in `slicer-extension/UKFGPU/Testing/`.
 

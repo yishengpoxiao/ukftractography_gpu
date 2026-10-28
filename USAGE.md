@@ -43,10 +43,10 @@ FreeWater tensor models support 1T/2T. NODDI supports one or two orientations; u
 | --- | --- | --- |
 | `--useGPU` | Off | Enable CUDA tracking. Omit this switch for the CPU reference path. |
 | `--gpuDevice` | `0` | CUDA ordinal within the visible device list. `-1` distributes seeds over visible GPUs. |
-| `--gpuPrecision` | `0` | `0`: FP64. `1`: mixed precision for Simple1T/2T, with FP32 signal/interpolation and sensitive filtering in FP64. Other models, including Simple3T, retain FP64. |
+| `--gpuPrecision` | `0` | `0`: FP64. `1`: request mixed precision; the current backend promotes interpolation, signal prediction, and filtering to FP64, so both settings use the same trajectory arithmetic. DWI input storage is FP32 in both modes. |
 | `--numThreads` | Detected CPU count | CPU worker count; set `16` for the benchmark configuration. This does not set CUDA thread or GPU counts. |
 
-FP64 is the default for strict CPU comparison. Mixed precision can exceed the 0.001 mm position tolerance on real data. See the [accuracy requirements and known limitations](README.md#features-and-current-status).
+FP64 is the default. The mixed request currently has no FP32 trajectory computation or additional compute-speed benefit; it is retained in the CLI and scene settings. See the [accuracy requirements and known limitations](README.md#features-and-current-status).
 
 `CUDA_VISIBLE_DEVICES` restricts and reorders the visible CUDA devices. With `CUDA_VISIBLE_DEVICES=1`, `--gpuDevice 0` selects the first device in that restricted list. GPU UUIDs can also identify a physical card. Check device availability before starting work on a shared machine. A successful GPU run logs `tractography done on device`; a `falling back` message means CPU fallback and must be excluded from GPU speed measurements.
 
@@ -208,7 +208,7 @@ env -u UKF_GPU_DEVICES CUDA_VISIBLE_DEVICES=0,1 \
   --tracts "$UKF_OUT/hcp_multi_gpu.vtk"
 ```
 
-Each GPU keeps its own input copy; GPU memory is not pooled. To explore mixed precision with Simple1T/2T, replace `--gpuPrecision 0` with `--gpuPrecision 1` and validate against FP64.
+Each GPU keeps its own input copy; GPU memory is not pooled. `--gpuPrecision 1` is accepted for Simple1T/2T but currently auto-promotes all trajectory-affecting arithmetic to FP64, matching `--gpuPrecision 0` without an additional FP32 compute-speed benefit.
 
 ## Windows PowerShell example
 

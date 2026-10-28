@@ -43,7 +43,7 @@ function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Program failed with exit code $LASTEXITCODE" }
 }
-Invoke-Checked "cmake" @("-S", "$Repository/platforms/superbuild-2026-10-14-r4", "-B", $BuildDirectory,
+Invoke-Checked "cmake" @("-S", "$Repository/platforms/superbuild-2026-10-28", "-B", $BuildDirectory,
     "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_CUDA_COMPILER=$Nvcc",
     "-DUKF_CUDA_ARCHITECTURES=$CudaArchitectures")
 # Child ExternalProject builds also obey this bound.

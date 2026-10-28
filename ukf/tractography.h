@@ -75,7 +75,7 @@ struct UKFSettings {
   bool use_gpu;
   int gpu_device;
   int gpu_wave_size;
-  int gpu_precision;   /* 0 = double (default), 1 = float */
+  int gpu_precision;   /* 0 = FP64 (default), 1 = mixed request with FP64 tracking */
 
   /*
   *  TODO refactor

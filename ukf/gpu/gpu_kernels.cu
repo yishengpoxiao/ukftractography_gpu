@@ -3,10 +3,11 @@
  * \brief CUDA implementation of the UKF tractography hot loop for the
  *        unconstrained Simple 1-tensor / 2-tensor models.
  *
- * Precision: --gpuPrecision 0 uses FP64 throughout. --gpuPrecision 1
- * uses FP32 for interpolation and signal prediction, while retaining FP64
- * state, covariance, sigma points, reductions, and information-form updates.
- * This avoids loss of precision in the ill-conditioned small matrices.
+ * Precision: both modes retain the CPU's FP32 DWI storage and use FP64
+ * interpolation, signal prediction, state, covariance, and filter updates.
+ * Mixed requests promote the trajectory-sensitive calculations to FP64:
+ * FP32 observations can change directions and stopping decisions even when
+ * the filter matrices remain FP64.
  * -fmad=false keeps the FP64 operation order close to the CPU reference.
  *
  * Numerics: every reduction accumulates in ascending order (matching the
@@ -396,6 +397,9 @@ __global__ void k_record_start(GPUDarParams P, DevBufs D, int F)
 template<typename T>
 __global__ void k_interp(GPUDarParams P, DevBufs D, int F)
 {
+  __shared__ std::int64_t neighbor_base[27];
+  __shared__ T neighbor_weight[27];
+  __shared__ T weight_sum;
   const int f = D.act_idx[blockIdx.x];
   if (f >= F || D.active[f] == 0)
     {
@@ -415,35 +419,49 @@ __global__ void k_interp(GPUDarParams P, DevBufs D, int F)
   const int rz = (int)round((T)pz);
   double* sig = D.z + (size_t)f * 2 * G;
 
+  for (int neighbor = threadIdx.x; neighbor < 27; neighbor += blockDim.x)
+    {
+    const int x = rx + neighbor / 9 - 1;
+    const int y = ry + (neighbor / 3) % 3 - 1;
+    const int z = rz + neighbor % 3 - 1;
+    if (x < 0 || P.nx <= x || y < 0 || P.ny <= y || z < 0 || P.nz <= z)
+      {
+      neighbor_base[neighbor] = -1;
+      neighbor_weight[neighbor] = T(0);
+      continue;
+      }
+    const T dx = (x - px) * (T)P.vx;
+    const T dxx = dx * dx;
+    const T dy = (y - py) * (T)P.vy;
+    const T dyy = dy * dy;
+    const T dz = (z - pz) * (T)P.vz;
+    const T dzz = dz * dz;
+    neighbor_base[neighbor] = P.step1 * x + P.step2 * y + z * G;
+    neighbor_weight[neighbor] = d_host_exp(P.libm_exp,-(dxx + dyy + dzz) / sigma);
+    }
+  __syncthreads();
+
+  if (threadIdx.x == 0)
+    {
+    T sum = T(1e-16);
+    for (int neighbor = 0; neighbor < 27; ++neighbor)
+      {
+      if (neighbor_base[neighbor] >= 0) { sum += neighbor_weight[neighbor]; }
+      }
+    weight_sum = sum;
+    }
+  __syncthreads();
+
   for (int q = threadIdx.x; q < G; q += blockDim.x)
     {
     T acc = T(0);
-    T w_sum = T(1e-16);
-    for (int xx = -1; xx <= 1; ++xx)
+    for (int neighbor = 0; neighbor < 27; ++neighbor)
       {
-      const int x = rx + xx;
-      if (x < 0 || P.nx <= x) { continue; }
-      const T dx = (x - px) * (T)P.vx;
-      const T dxx = dx * dx;
-      for (int yy = -1; yy <= 1; ++yy)
-        {
-        const int y = ry + yy;
-        if (y < 0 || P.ny <= y) { continue; }
-        const T dy = (y - py) * (T)P.vy;
-        const T dyy = dy * dy;
-        for (int zz = -1; zz <= 1; ++zz)
-          {
-          const int z = rz + zz;
-          if (z < 0 || P.nz <= z) { continue; }
-          const T dz = (z - pz) * (T)P.vz;
-          const T dzz = dz * dz;
-          const T w = d_host_exp(P.libm_exp,-(dxx + dyy + dzz) / sigma);
-          acc += w * (T)D.dwi[P.step1 * x + P.step2 * y + z * G + q];
-          w_sum += w;
-          }
-        }
+      const std::int64_t base = neighbor_base[neighbor];
+      if (base < 0) { continue; }
+      acc += neighbor_weight[neighbor] * (T)D.dwi[base + q];
       }
-    sig[q] = acc / w_sum;
+    sig[q] = acc / weight_sum;
     sig[q + G] = sig[q];
     }
 }
@@ -1186,8 +1204,8 @@ bool run_waves(const GPUDarParams& P, GPUDevPointers& raw, int F, std::string& e
   const size_t smem_sigmas = sizeof(double) * (nn + n);
   const size_t smem_update = sizeof(double) * (4 * nn + 4 * n + 2 * Q2 + S2 + S2*n) + sizeof(int) * (n + 1);
   const size_t smem_step = sizeof(double) * (P.noddi ? 2*Q2+16 : Q2+32);
-  const size_t smem_h = P.model == UKF_GPU_MODEL_GENERAL ? sizeof(double)*(block_h/32)*(P.noddi ? Q2+16 : 32) :
-    (P.use_float ? sizeof(float) : sizeof(double))*(block_h/32)*20;
+  const size_t smem_h = sizeof(double)*(block_h/32)*
+    (P.model == UKF_GPU_MODEL_GENERAL ? (P.noddi ? Q2+16 : 32) : 20);
   k_record_start<<<(F + block - 1) / block, block>>>(P, D, F);
   CHK(cudaGetLastError());
   WaveProfile profile;
@@ -1200,8 +1218,7 @@ bool run_waves(const GPUDarParams& P, GPUDevPointers& raw, int F, std::string& e
     if (P.branching) { CHK(cudaMemset(raw.branch_count,0,sizeof(int))); }
     const bool sample = profile.enabled && (step % 64 == 1);
     if (sample) { cudaEventRecord(profile.events[0]); }
-    if (P.use_float) { k_interp<float><<<active, block>>>(P, D, F); }
-    else { k_interp<double><<<active, block>>>(P, D, F); }
+    k_interp<double><<<active, block>>>(P, D, F);
     CHK(cudaGetLastError());
     if (sample) { cudaEventRecord(profile.events[1]); }
     if (P.model == UKF_GPU_MODEL_GENERAL)
@@ -1223,10 +1240,8 @@ bool run_waves(const GPUDarParams& P, GPUDevPointers& raw, int F, std::string& e
     if (sample) { cudaEventRecord(profile.events[2]); }
     if (P.model == UKF_GPU_MODEL_GENERAL)
       {
-      if (P.use_float && !P.noddi) { k_H_general<float><<<active, block_h, smem_h>>>(P,D,F); }
-      else { k_H_general<double><<<active, block_h, smem_h>>>(P,D,F); }
+      k_H_general<double><<<active, block_h, smem_h>>>(P,D,F);
       }
-    else if (P.use_float) { k_H<float><<<active, block_h, smem_h>>>(P, D, F); }
     else { k_H<double><<<active, block_h, smem_h>>>(P, D, F); }
     CHK(cudaGetLastError());
     if (sample) { cudaEventRecord(profile.events[3]); }
@@ -1384,7 +1399,11 @@ bool gpu_compute(const GPUDarParams& P,
     }
   const int CF = (int)std::min(std::min(want, capacity), std::min((size_t)S, (size_t)131072));
   fprintf(stderr, "[GPU worker] dev=%d precision=%s slice_F=%d CF=%d per_fiber=%.0fKB\n",
-          device, P.use_float ? "mixed-fp32" : "fp64", S, CF, per_fiber / 1024.0);
+          device, P.mixed_requested ? "mixed-fp64-compute" : "fp64", S, CF, per_fiber / 1024.0);
+  if (P.mixed_requested)
+    {
+    fprintf(stderr, "[GPU precision] Mixed request: FP32 DWI storage; interpolation, signal prediction and tracking use FP64 for CPU parity.\n");
+    }
   if (P.branching) { ALLOC(branch_count,sizeof(int)); ALLOC(branches,2*CF*sizeof(GPUBranchSeed)); }
   ALLOC(pos, sizeof(double)*3*CF);
   ALLOC(state, sizeof(double)*n*CF);
