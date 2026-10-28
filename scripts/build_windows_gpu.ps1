@@ -51,6 +51,9 @@ $PreviousParallelLevel = $env:CMAKE_BUILD_PARALLEL_LEVEL
 try {
     $env:CMAKE_BUILD_PARALLEL_LEVEL = "$Jobs"
     Invoke-Checked "cmake" @("--build", $BuildDirectory, "--parallel", "$Jobs")
+    # ExternalProject stamps do not track edits in our local backend sources.
+    Invoke-Checked "cmake" @("-S", "$Repository/platforms/standalone", "-B", "$BuildDirectory/backend")
+    Invoke-Checked "cmake" @("--build", "$BuildDirectory/backend", "--parallel", "$Jobs")
 } finally {
     $env:CMAKE_BUILD_PARALLEL_LEVEL = $PreviousParallelLevel
 }

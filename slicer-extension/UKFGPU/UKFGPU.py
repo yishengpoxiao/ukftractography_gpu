@@ -461,7 +461,7 @@ class UKFGPUWidget(ScriptedLoadableModuleWidget):
         return device
 
     def refreshGpu(self, *unused):
-        if self.updatingParameters or self.gpuProbe is not None or self.logic.process is not None:
+        if self.cleanedUp or self.updatingParameters or self.gpuProbe is not None or self.logic.process is not None:
             return
         self.gpuStatus.text = "Detecting CUDA GPUs..."
         self.refreshGpuButton.enabled = False

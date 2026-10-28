@@ -16,13 +16,13 @@ Accuracy acceptance requires the same fiber order and per-fiber point counts, po
 
 ## 3D Slicer
 
-Follow the [current installation guide](slicer-extension/README.md#install) for the version-adaptive offline installer, Windows workflow downloads, and upgrades. It supports Slicer 5.2 or newer on included Linux/Windows x86_64 platforms and bundles native runtime dependencies. A compatible NVIDIA driver is required.
+The recommended route is to **build and install on your own computer** using the [local build commands](slicer-extension/README.md#install). The scripts locate Slicer and the CUDA Toolkit, download/build the library dependencies, and launch Slicer for installation. Precompiled installer ZIPs remain an optional alternative. Slicer 5.2 or newer, Linux/Windows x86_64, and a compatible NVIDIA driver are required.
 
-The same guide covers [Slicer usage](slicer-extension/README.md#use) and [building installers](slicer-extension/README.md#build-installers). All installation steps are maintained there.
+The same guide covers prerequisites, upgrades, [Slicer usage](slicer-extension/README.md#use), and [optional installer packaging](slicer-extension/README.md#build-installers). All installation steps are maintained there.
 
 ## Build
 
-The following instructions build the backend and installers from source. For an existing installer ZIP, follow the [Slicer installation guide](slicer-extension/README.md#install).
+For the recommended local Slicer build/install scripts, use the [Slicer installation guide](slicer-extension/README.md#install). The commands below are the lower-level backend build route for developers.
 
 Clone this repository:
 
@@ -75,7 +75,7 @@ Use a short checkout/build path, and install the Visual Studio C++ workload and 
 
 The script builds the dependencies and backend without a Slicer SDK, packages native dependencies privately, verifies GPU DLL exports, and checks executable loading with a restricted PATH. `PackageDirectory` must be new. Select the target Slicer's major.minor version with `SlicerVersion`. Override GPU targets with `-CudaArchitectures '89-real;89-virtual'` when needed. The MSVC runtime defaults to `$env:VCToolsRedistDir\x64\Microsoft.VC143.CRT`; use `-MsvcRuntimeDirectory` for another x64 CRT directory.
 
-The Windows installer workflow produces build artifacts. Windows GPU execution still requires hardware validation.
+The Windows installer workflow produces optional build artifacts and checks backend changes. The local-build workflow additionally checks tool discovery without compiling a distribution package. Windows GPU execution still requires hardware validation.
 
 ## Command-line usage
 
@@ -119,7 +119,7 @@ This downloads the data from a pinned upstream commit and checks its SHA-256 has
 
 The current standalone and dependency-superbuild entries are `platforms/standalone` and `platforms/superbuild`. The current CLI description is `UKFTractography/UKFTractography.xml`; the standalone directory contains the executable entry point and Windows UTF-8 manifest. Root CMake/SuperBuild files provide the original upstream build route.
 
-The Windows installer workflow checks native compilation, CPU execution, packaging contracts, and actual extension installation/module loading. Python unit and installation checks are in `slicer-extension/UKFGPU/Testing/`.
+The local-build workflow checks Linux Python contracts and Windows tool/Slicer discovery from ordinary PowerShell. The Windows installer workflow additionally checks native compilation, CPU execution, packaging contracts, and actual extension installation/module loading. Python unit and installation checks are in `slicer-extension/UKFGPU/Testing/`.
 
 Numerical acceptance scripts, detailed benchmark logs, generated results, build outputs, and packaged runtimes are maintained outside this repository. Original upstream CPU regression tests and their input/baseline data are retained for the upstream build route.
 

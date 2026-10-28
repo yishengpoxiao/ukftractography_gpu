@@ -1,0 +1,58 @@
+name: Local build preflight
+on:
+  workflow_dispatch:
+    inputs:
+      cuda_version:
+        description: Private CUDA toolchain used only for preflight
+        default: '12.9.1'
+        required: true
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/build_local_windows.ps1'
+      - 'scripts/build_local_linux.py'
+      - '.github/workflows/local-build.yml'
+permissions:
+  contents: read
+jobs:
+  windows-preflight:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install private CUDA toolchain
+        shell: pwsh
+        run: ./scripts/install_cuda_toolkit.ps1 -Version '${{ inputs.cuda_version || '12.9.1' }}' -Directory "$env:RUNNER_TEMP/cuda"
+      - name: Download and install Slicer 5.6.2
+        shell: pwsh
+        run: |
+          $Installer = Join-Path $env:RUNNER_TEMP 'Slicer-5.6.2.exe'
+          python ./scripts/fetch_slicer.py --version 5.6.2 --output $Installer
+          if ($LASTEXITCODE -ne 0) { throw 'Slicer download or checksum verification failed.' }
+          $Application = Join-Path $env:RUNNER_TEMP 'Slicer-5.6.2'
+          $Setup = Start-Process -FilePath $Installer -ArgumentList @('/S', "/D=$Application") -Wait -PassThru
+          if ($Setup.ExitCode -ne 0) { throw "Slicer installer failed with exit code $($Setup.ExitCode)." }
+          $Slicer = Get-ChildItem -LiteralPath $Application -Filter Slicer.exe -File -Recurse | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $Slicer) { throw "Slicer.exe was not found under $Application." }
+          "SLICER_EXE=$Slicer" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: Parse and preflight the local Windows wrapper
+        shell: pwsh
+        run: |
+          $Tokens = $null
+          $Errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path './scripts/build_local_windows.ps1'), [ref]$Tokens, [ref]$Errors) | Out-Null
+          if ($Errors.Count) { $Errors | Format-List | Out-String | Write-Error; throw 'PowerShell syntax validation failed.' }
+          ./scripts/build_local_windows.ps1 -SlicerPath $env:SLICER_EXE -BuildDirectory "$env:RUNNER_TEMP/local-build" -CheckOnly
+  linux-contract-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Compile local Linux entrypoint and run packaging tests
+        run: |
+          python3 -m py_compile scripts/build_local_linux.py
+          python3 slicer-extension/UKFGPU/Testing/test_platform_runtime.py
+          python3 slicer-extension/UKFGPU/Testing/test_installer.py
+          python3 slicer-extension/UKFGPU/Testing/test_portable_packager.py
+          python3 slicer-extension/UKFGPU/Testing/test_model_settings.py
+          python3 slicer-extension/UKFGPU/Testing/test_tracking_controls.py

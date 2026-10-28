@@ -1,14 +1,40 @@
 # UKF GPU: 3D Slicer Extension
 
-This extension connects the CUDA UKF backend to Slicer. It provides 12 experimental models, FP64 and a retained mixed-precision request, GPU selection, tracking and recording options, asynchronous execution, cancellation, logs, and fiber display. It also validates input geometry and seed selection, reports actual tracking counts/elapsed time, saves settings with the scene, and provides direction/FA/length/solid coloring.
+This extension connects the CUDA UKF backend to Slicer. It provides 12 experimental models, FP64 and guarded mixed precision, GPU selection, tracking and recording options, asynchronous execution, cancellation, logs, and fiber display. It also validates input geometry and seed selection, reports actual tracking counts/elapsed time, saves settings with the scene, and provides direction/FA/length/solid coloring.
 
 Linux integration has been tested with Slicer 5.2.2, 5.6.2 and 5.12.4. Windows native compilation, CPU execution, and actual installation/module loading have been checked in CI with Slicer 5.6.2 and 5.12.4. Windows GPU tracking still needs verification on NVIDIA hardware.
 
 ## Install
 
+**Recommended: build and install on the computer that will run Slicer.** Clone the repository, open a terminal in the checkout, and run the command for your operating system. No precompiled installer download or Slicer SDK is required.
+
+Prepare Slicer 5.2+, an NVIDIA driver, and a CUDA Toolkit compatible with your GPU and host compiler. The Toolkit includes `nvcc`; the driver's CUDA/UMD version alone is not a Toolkit installation. Linux also needs Python 3.9+, GCC/G++, Make, Git and CMake 3.22+. Windows needs the Visual Studio C++ workload and Windows SDK, Git, CMake 3.22+ and Ninja; the script can use the tools bundled with Visual Studio and Python supplied by Slicer. System compilers, drivers and the Toolkit are not installed silently.
+
+Linux:
+
+```bash
+python3 scripts/build_local_linux.py --slicer /path/to/Slicer
+```
+
+Windows, from ordinary PowerShell:
+
+```powershell
+.\scripts\build_local_windows.ps1 -SlicerPath 'C:\path\to\Slicer.exe'
+```
+
+Use the actual Slicer executable or its installation directory. The scripts locate CUDA automatically; override with `--cuda-path /path/to/cuda` on Linux or `-CudaPath 'C:\path\to\CUDA'` on Windows. Windows activates an x64 Visual Studio environment automatically. No fixed CUDA Toolkit version is imposed; the compiler must support your Toolkit and GPU.
+
+The scripts download and build the pinned ITK/VTK/Eigen/Teem/SlicerExecutionModel/zlib dependencies, then compile the GPU backend. They prefer the detected local GPU architectures, plus baseline PTX; when detection is unavailable, they use the compiler's supported architecture set. Initial builds need internet access and substantial time/disk space. Subsequent runs reuse the build cache in `../build-local-linux` or `../build-local-windows`; do not delete it merely to update the source. Build directories must be dedicated to UKFGPU. Use a short checkout/build path on Windows.
+
+Add `--check-only` / `-CheckOnly` to inspect prerequisites without building, `--jobs 8` / `-Jobs 8` to control parallelism, or `--no-install` / `-NoInstall` to build without opening Slicer. Override the cache with `--build-dir` / `-BuildDirectory`.
+
+After building, the script opens Slicer and runs its Extensions Manager installer. Restart Slicer after a new installation. For an existing UKFGPU installation, follow the displayed upgrade instructions: remove the old extension, restart, install the generated matching archive, and restart again. The build script does not remove an extension that may be in use. Generated ZIP names are fixed and are replaced on a successful build; temporary packaging directories are cleaned.
+
+### Optional offline installer
+
 Use the latest **version-adaptive offline installer ZIP** containing a native runtime for your operating system:
 
-- **Windows:** open the [Windows native installer workflow](https://github.com/yishengpoxiao/ukftractography_gpu/actions/workflows/windows-installer.yml), select the latest successful run, and download its `UKFGPU-Windows-native-*` artifact. Extract the artifact download to find `UKFGPU-Installer-windows-x86_64.zip`.
+- **Windows:** open the [Windows native installer workflow](https://github.com/yishengpoxiao/ukftractography_gpu/actions/workflows/windows-installer.yml), select the latest successful run (or start the workflow manually), and download its `UKFGPU-Windows-native-*` artifact. Extract the artifact download to find `UKFGPU-Installer-windows-x86_64.zip`.
 - **Linux:** use an installer ZIP generated from the current native Linux build; see [Build installers](#build-installers). Linux binaries are not currently distributed through GitHub Actions.
 
 GitHub Releases and the online Slicer Extensions Catalog are not used for distribution. Downloading the repository source ZIP does not provide a compiled backend. A bundle supports only the platforms listed in its `manifest.json`.
