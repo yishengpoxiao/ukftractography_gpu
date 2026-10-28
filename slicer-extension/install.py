@@ -67,9 +67,14 @@ def prepare_archive(bundle, destination, version, revision, system=None, machine
         scripts = extension/('lib/Slicer-' + slicer_version)/'qt-scripted-modules'
         shutil.copytree(bundle/'module', scripts, ignore=shutil.ignore_patterns('__pycache__'))
         shutil.copytree(runtime, scripts/'Runtime')
-        if platform_key(system, machine).startswith('linux'):
-            for path in (scripts/'Runtime/bin').iterdir():
-                path.chmod(0o755)
+        linux_runtime = platform_key(system, machine).startswith('linux')
+        runtime_bin = 'UKFGPU/lib/Slicer-' + slicer_version + '/qt-scripted-modules/Runtime/bin/'
+
+        def archive_permissions(info):
+            # Windows chmod cannot set POSIX executable bits; set tar metadata directly.
+            if linux_runtime and info.isfile() and info.name.startswith(runtime_bin):
+                info.mode = 0o755
+            return info
         share = extension/('share/Slicer-' + slicer_version)
         share.mkdir(parents=True)
         shutil.copytree(bundle/'docs', share/'UKFGPU')
@@ -81,7 +86,7 @@ def prepare_archive(bundle, destination, version, revision, system=None, machine
                     'status Experimental\nenabled 1\n').format(commit=manifest['source_commit'], revision=revision)
         (share/'UKFGPU.s4ext').write_text(metadata, encoding='utf-8')
         with destination.open('xb') as stream, tarfile.open(fileobj=stream, mode='w:gz') as archive:
-            archive.add(extension, arcname='UKFGPU')
+            archive.add(extension, arcname='UKFGPU', filter=archive_permissions)
     return destination
 
 

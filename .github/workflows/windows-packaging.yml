@@ -1,0 +1,19 @@
+name: Windows packaging contracts
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/package_*.py'
+      - 'slicer-extension/**'
+      - '.github/workflows/windows-packaging.yml'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Run all packaging and model contracts in one process
+        run: python -m unittest discover -s slicer-extension/UKFGPU/Testing -p "test_*.py"
