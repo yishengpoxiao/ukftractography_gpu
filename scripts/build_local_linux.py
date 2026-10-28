@@ -110,48 +110,25 @@ def run(command, **kwargs):
 
 
 def install_bundle(slicer, archive, build_dir):
-    install_target = build_dir/'UKFGPU-Slicer-update-linux-x86_64.tar.gz'
-    with tempfile.TemporaryDirectory(prefix='UKFGPU-install-') as temp:
+    # Keep upgrade archives available after the installer closes.
+    destination = build_dir/'UKFGPU-Installer'
+    if destination.exists():
+        if not all((destination/name).is_file() for name in ('manifest.json', 'install.py')):
+            raise ValueError('Existing directory is not a recognized UKFGPU installer: ' + str(destination))
+    with tempfile.TemporaryDirectory(prefix='UKFGPU-install-', dir=build_dir) as temp:
         root = Path(temp)
         with zipfile.ZipFile(archive) as bundle:
             bundle.extractall(root)
-        bundle_dir = root/'UKFGPU-Installer'
-        runner = root/'install_into_slicer.py'
-        runner.write_text(f'''import importlib.util
-import shutil
-import traceback
-from pathlib import Path
-import slicer
-
-bundle = Path({str(bundle_dir)!r})
-update_target = Path({str(install_target)!r})
-was_installed = slicer.app.extensionsManagerModel().isExtensionInstalled('UKFGPU')
-try:
-    spec = importlib.util.spec_from_file_location('ukfgpu_installer', bundle/'install.py')
-    installer = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(installer)
-    installer.install_in_slicer(bundle)
-    if was_installed:
-        packages = sorted((bundle/'packages').glob('*.tar.gz'))
-        if not packages:
-            raise RuntimeError('Installer did not produce the Slicer upgrade archive.')
-        shutil.copy2(packages[-1], update_target)
-        print('UKFGPU update archive: ' + str(update_target), flush=True)
-        print('Remove UKFGPU in Extensions Manager, restart Slicer, install this archive with Install from file, then restart again.', flush=True)
-except Exception:
-    traceback.print_exc()
-    slicer.app.exit(1)
-else:
-    slicer.app.exit(0)
-''', encoding='utf-8')
-        env = os.environ.copy()
-        for name in ('PYTHONHOME', 'PYTHONPATH', 'QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH',
-                     'UKF_GPU_EXECUTABLE'):
-            env.pop(name, None)
-        run([str(slicer), '--no-splash', '--python-script', str(runner)], env=env)
-    if install_target.is_file():
-        print('UKFGPU is already installed. The prepared update archive is:', install_target)
-        print('Remove UKFGPU in Slicer Extensions Manager, restart Slicer, install this archive with Install from file, then restart again.')
+        if destination.exists():
+            shutil.rmtree(destination)
+        os.replace(root/'UKFGPU-Installer', destination)
+    env = os.environ.copy()
+    for name in ('PYTHONHOME', 'PYTHONPATH', 'QT_PLUGIN_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH',
+                 'UKF_GPU_EXECUTABLE'):
+        env.pop(name, None)
+    subprocess.Popen([str(slicer), '--no-splash', '--python-script', str(destination/'install.py')], env=env)
+    print('Slicer installer launched. Follow its installation/upgrade instructions and restart Slicer.')
+    print('Installer files and upgrade archives remain in:', destination)
 
 
 def main():

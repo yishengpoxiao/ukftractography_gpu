@@ -77,8 +77,8 @@ if ($env:VSCMD_ARG_TGT_ARCH -ne 'x64' -or -not (Get-Command cl.exe -ErrorAction 
     if (-not (Test-Path $VsDevCmd)) {
         throw "Visual Studio C++ x64 tools were not found. Install Visual Studio 2022 Build Tools with the C++ workload, then retry with -SlicerPath '$SlicerExe'."
     }
-    $CmdLine = '"' + $VsDevCmd + '" -no_logo -arch=x64 -host_arch=x64 && set'
-    $EnvironmentLines = & $env:ComSpec /d /s /c ('"' + $CmdLine + '"')
+    $CmdLine = 'call "' + $VsDevCmd + '" -no_logo -arch=x64 -host_arch=x64 && set'
+    $EnvironmentLines = & $env:ComSpec /d /c $CmdLine
     if ($LASTEXITCODE -ne 0) { throw "VsDevCmd failed. Open an x64 Developer PowerShell or repair Visual Studio, then retry with -SlicerPath '$SlicerExe'." }
     foreach ($Line in $EnvironmentLines) {
         if ($Line -match '^([^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process') }
