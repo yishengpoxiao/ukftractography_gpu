@@ -37,7 +37,8 @@ UKF_GPU_API void cuda_device_mem_info(int device, size_t& free_b, size_t& total_
  * with the same b-values. Signal values for the two halves are identical.
  * Output arrays are sized S * max_rec (per record scalar) and written in
  * seed order. Optional scalar outputs are only written when their recording
- * flag is enabled and may otherwise be null. out_reccount holds the number of recorded points per fiber. */
+ * flag is enabled and may otherwise be null. State records may also be null
+ * when record_state is disabled. out_reccount holds the number of recorded points per fiber. */
 UKF_GPU_API bool gpu_compute(const GPUDarParams& params_in,
                  const float* dwi, const void* mask, const void* stop,
                  const float* gm, const float* csf,

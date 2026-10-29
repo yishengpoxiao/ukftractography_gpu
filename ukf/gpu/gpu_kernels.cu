@@ -372,17 +372,17 @@ __global__ void k_record_start(GPUDarParams P, DevBufs D, int F)
     return;
     }
   const int n = P.n;
-  const double* st = D.state + (size_t)f * n;
-  double* rs = D.rec_state + ((size_t)f * P.max_rec + 0) * n;
-  for (int d = 0; d < n; ++d)
+  if (P.record_state)
     {
-    rs[d] = st[d];
-    }
-  if (n == 5 || n == 10 || n == 15)
-    {
-    d_initNormalized(rs[0], rs[1], rs[2]);
-    if (n == 10) { d_initNormalized(rs[5], rs[6], rs[7]); }
-    if (n == 15) { d_initNormalized(rs[10], rs[11], rs[12]); }
+    const double* st = D.state + (size_t)f * n;
+    double* rs = D.rec_state + (size_t)f * P.max_rec * n;
+    for (int d = 0; d < n; ++d) { rs[d] = st[d]; }
+    if (n == 5 || n == 10 || n == 15)
+      {
+      d_initNormalized(rs[0], rs[1], rs[2]);
+      if (n == 10) { d_initNormalized(rs[5], rs[6], rs[7]); }
+      if (n == 15) { d_initNormalized(rs[10], rs[11], rs[12]); }
+      }
     }
   double* rp = D.rec_pos + ((size_t)f * P.max_rec + 0) * 3;
   rp[0] = D.pos[f * 3 + 0]; rp[1] = D.pos[f * 3 + 1]; rp[2] = D.pos[f * 3 + 2];
@@ -1123,19 +1123,12 @@ __global__ void k_step_stop(GPUDarParams P, DevBufs D, int F, int stepnr)
         D.rec_fa[(size_t)f * P.max_rec + r] = D.fa[f];
         D.rec_fa2[(size_t)f * P.max_rec + r] = D.fa2[f];
         }
-      double* rs = D.rec_state + ((size_t)f * P.max_rec + r) * n;
-      for (int d = 0; d < n; ++d)
+      if (P.record_state)
         {
-        rs[d] = st[d];
-        }
-      if (P.model == UKF_GPU_MODEL_SIMPLE1T)
-        {
+        double* rs = D.rec_state + ((size_t)f * P.max_rec + r) * n;
+        for (int d = 0; d < n; ++d) { rs[d] = st[d]; }
         d_initNormalized(rs[0], rs[1], rs[2]);
-        }
-      else
-        {
-        d_initNormalized(rs[0], rs[1], rs[2]);
-        d_initNormalized(rs[5], rs[6], rs[7]);
+        if (P.model != UKF_GPU_MODEL_SIMPLE1T) { d_initNormalized(rs[5], rs[6], rs[7]); }
         }
       if (P.record_cov)
         {
@@ -1208,18 +1201,6 @@ void cuda_device_mem_info(int device, size_t& free_b, size_t& total_b)
 bool upload_values(void* dst, const double* src, size_t count, std::string& err)
 {
   CHK(cudaMemcpy(dst, src, count * sizeof(double), cudaMemcpyHostToDevice));
-  return true;
-}
-
-bool download_values(double* dst, const void* src, size_t count, std::string& err)
-{
-  const size_t piece = 1 << 20;
-  for (size_t offset = 0; offset < count; offset += piece)
-    {
-    const size_t length = std::min(piece, count - offset);
-    CHK(cudaMemcpy(dst + offset, static_cast<const double*>(src) + offset,
-                   length * sizeof(double), cudaMemcpyDeviceToHost));
-    }
   return true;
 }
 
@@ -1433,10 +1414,10 @@ bool gpu_compute(const GPUDarParams& P,
 
   size_t free_b = 0, total_b = 0;
   CHK(cudaMemGetInfo(&free_b, &total_b));
-  const size_t transfer_values = 1 << 20; // At most 8 MiB of temporary device/host storage.
-  const size_t transfer_bytes = transfer_values*sizeof(double);
+  const size_t transfer_values = 1 << 20; // Two 8 MiB slots on device and in pinned host memory.
+  const size_t transfer_bytes = 2*transfer_values*sizeof(double);
   const size_t per_fiber = sizeof(double) * (size_t)(3 + n + n*n + 6 + 3 + Q2 + S2*n + S2*Q2 + std::max(2*n*Q2,n*n)
-    + P.max_rec * (3 + 1 + n + P.record_nmse + 2*P.record_trace + 2*P.record_fa + (P.record_cov ? n*n : 0)))
+    + P.max_rec * (3 + 1 + P.record_state*n + P.record_nmse + 2*P.record_trace + 2*P.record_fa + (P.record_cov ? n*n : 0)))
     + 4 * sizeof(int) + sizeof(size_t) + (P.branching ? 2*sizeof(GPUBranchSeed) : 0);
   const size_t capacity = (size_t)((free_b > transfer_bytes ? free_b-transfer_bytes : 0) * 0.85) / per_fiber;
   if (capacity == 0) { err = "insufficient device memory for one fiber"; return false; }
@@ -1448,7 +1429,9 @@ bool gpu_compute(const GPUDarParams& P,
     if (value <= 0) { err = "UKF_GPU_CHUNK must be positive"; return false; }
     want = (size_t)value;
     }
-  const int CF = (int)std::min(std::min(want, capacity), std::min((size_t)S, (size_t)131072));
+  const size_t limit = std::min(std::min(want, capacity), std::min((size_t)S, (size_t)131072));
+  const size_t batches = ((size_t)S+limit-1)/limit;
+  const int CF = (int)(((size_t)S+batches-1)/batches);
   fprintf(stderr, "[GPU worker] dev=%d precision=%s slice_F=%d CF=%d per_fiber=%.0fKB\n",
           device, P.mixed_requested ? (P.libm_exp ? "mixed-guarded-fp32" : "mixed-fp64-fallback") : "fp64", S, CF, per_fiber / 1024.0);
   if (P.mixed_requested)
@@ -1469,17 +1452,16 @@ bool gpu_compute(const GPUDarParams& P,
   ALLOC(Z, sizeof(double)*S2*Q2*CF); ALLOC(scratch, sizeof(double)*std::max(2*n*Q2,n*n)*CF);
   const size_t records = (size_t)CF * P.max_rec;
   ALLOC(rec_pos, sizeof(double)*records*3); ALLOC(rec_norm, sizeof(double)*records);
-  ALLOC(rec_state, sizeof(double)*records*n);
+  if (P.record_state) { ALLOC(rec_state, sizeof(double)*records*n); }
   if (P.record_nmse) { ALLOC(rec_nmse, sizeof(double)*records); }
   if (P.record_trace) { ALLOC(rec_trace, sizeof(double)*records); ALLOC(rec_trace2, sizeof(double)*records); }
   if (P.record_fa) { ALLOC(rec_fa, sizeof(double)*records); ALLOC(rec_fa2, sizeof(double)*records); }
   if (P.record_cov) { ALLOC(rec_cov, sizeof(double)*records*n*n); }
   size_t* device_offsets = NULL;
-  double* transfer_buffer = NULL;
-  const size_t transfer_capacity = std::min(transfer_values, records*(P.record_cov ? n*n : n));
-  if (!storage.allocate(reinterpret_cast<void**>(&device_offsets),sizeof(size_t)*(CF+1),err) ||
-      !storage.allocate(reinterpret_cast<void**>(&transfer_buffer),sizeof(double)*transfer_capacity,err)) { return false; }
-  std::vector<double> transfer_host(transfer_capacity);
+  const size_t transfer_capacity = std::min(transfer_values, records*(P.record_cov ? n*n : (P.record_state ? n : 3)));
+  if (!storage.allocate(reinterpret_cast<void**>(&device_offsets),sizeof(size_t)*(CF+1),err)) { return false; }
+  RecordTransfer transfer;
+  if (!transfer.initialize(transfer_capacity,err)) { return false; }
   std::vector<int> indices(CF), ones(CF, 1);
   std::iota(indices.begin(), indices.end(), 0);
   for (int base = 0; base < S; base += CF)
@@ -1513,13 +1495,11 @@ bool gpu_compute(const GPUDarParams& P,
     auto download = [&](double* output,const void* source,int width)
       {
       transferred_values += (compact ? offsets.back() : count)*width;
-      if (compact) { return download_compact_records(output+offset*width,source,P.max_rec,width,
-        offsets,device_offsets,transfer_buffer,transfer_host,err); }
-      return download_values(output+offset*width,source,count*width,err);
+      return transfer.download(output+offset*width,source,P.max_rec,width,offsets,device_offsets,compact,err);
       };
 #define DOWNLOAD(field, output, width) if (!download((output),D.field,(width))) { return false; }
     DOWNLOAD(rec_pos, out_rec_pos, 3); DOWNLOAD(rec_norm, out_rec_norm, 1);
-    DOWNLOAD(rec_state, out_rec_state, n);
+    if (P.record_state) { DOWNLOAD(rec_state, out_rec_state, n); }
     if (P.record_nmse) { DOWNLOAD(rec_nmse, out_rec_nmse, 1); }
     if (P.record_trace) { DOWNLOAD(rec_trace, out_rec_trace, 1); DOWNLOAD(rec_trace2, out_rec_trace2, 1); }
     if (P.record_fa) { DOWNLOAD(rec_fa, out_rec_fa, 1); DOWNLOAD(rec_fa2, out_rec_fa2, 1); }

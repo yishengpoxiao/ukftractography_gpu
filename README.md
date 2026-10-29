@@ -41,15 +41,17 @@ See [USAGE.md](USAGE.md) for command-line parameters and examples, and [ACCELERA
 
 ## HCP YA speed comparison
 
-HCP Young Adult b≈3000 s/mm² data: **1.25 mm isotropic**, **145 × 174 × 145 voxels**, **108 volumes**, copied to local disk. Simple2T, **3 seeds/voxel**, about **0.58 million streamlines**. CPU: **16 physical cores** on an Intel Xeon Gold 6330; GPU: **one RTX 4090 selected while idle**. All runs used the same Release/AVX build and [tracking parameters](USAGE.md#reproduce-the-hcp-cpugpu-parameter-set).
+HCP Young Adult b≈3000 s/mm² data: **1.25 mm isotropic**, **145 × 174 × 145 voxels**, **108 volumes**, copied to local disk. Simple2T, **3 seeds/voxel**, about **0.58 million streamlines**. CPU: **16 physical cores** on an Intel Xeon Gold 6330; GPU: **one RTX 4090 selected while idle**. Runs used the same Release/AVX compiler settings and [tracking parameters](USAGE.md#reproduce-the-hcp-cpugpu-parameter-set).
 
 | Backend | Tracking | End-to-end | Tracking speedup | Total speedup |
 | --- | ---: | ---: | ---: | ---: |
-| CPU, 16 cores | 1881.7 s | 2015.6 s | 1.00× | 1.00× |
-| GPU, FP64 | 289.5 s | 410.6 s | 6.50× | 4.91× |
-| GPU, guarded mixed | 286.1 s | 395.8 s | 6.58× | 5.09× |
+| CPU reference, 16 cores | 1881.7 s | 2015.6 s | 1.00× | 1.00× |
+| GPU, FP64 | 269.1 s | 332.0 s | 6.99× | 6.07× |
+| GPU, guarded mixed | 266.7 s | 329.5 s | 7.06× | 6.12× |
 
-Single sequential measurements on a shared server; end-to-end includes input loading and VTK writing. Input loading varied between runs, so the small mixed/FP64 difference does not establish a consistent mixed-precision advantage. Fiber order and per-fiber point counts matched across all three outputs, with **0 mm maximum stored position error** (limit: 0.001 mm); recorded arrays also matched. Detailed logs and outputs remain outside this repository.
+GPU runs were repeated on one idle RTX 4090; the CPU row retains the original reference measurement. On the same GPU, this update reduced mixed-mode tracking from **282.1 to 266.7 s** and total time from **396.0 to 329.5 s**. These are single sequential runs on a shared server, including input loading and VTK writing.
+
+Both updated GPU modes matched the original CPU fiber order and per-fiber point counts, with **0 mm maximum stored position error** (limit: 0.001 mm); recorded arrays also matched. Detailed logs and outputs remain outside this repository.
 
 ## Development data
 

@@ -156,6 +156,8 @@ bool run_tractography(ISignalData* signal_data,
   P.record_trace = s.record_trace || s.record_kappa;
   P.record_fa = s.record_fa || s.record_Vic;
   P.record_cov = s.record_cov ? 1 : 0;
+  P.record_state = s.record_state || s.record_tensors || s.store_glyphs || s.record_cov ||
+    s.record_free_water || s.record_Viso;
   P.gm_thr = s.gm_prob_threshold;
   P.csf_thr = s.csf_prob_threshold;
   P.use_gmcsf = (int)signal_data->isGMCSFProvided();
@@ -254,7 +256,8 @@ bool run_tractography(ISignalData* signal_data,
   const size_t total_rec = (size_t)S * P.max_rec;
   std::vector<int> reccount(S, 0);
   auto allocate = [](size_t count) { return std::unique_ptr<double[]>(count ? new double[count] : nullptr); };
-  auto rec_pos = allocate(total_rec*3), rec_norm = allocate(total_rec), rec_state = allocate(total_rec*n);
+  auto rec_pos = allocate(total_rec*3), rec_norm = allocate(total_rec),
+       rec_state = allocate(P.record_state ? total_rec*n : 0);
   auto rec_nmse = allocate(P.record_nmse ? total_rec : 0);
   auto rec_trace = allocate(P.record_trace ? total_rec : 0), rec_trace2 = allocate(P.record_trace ? total_rec : 0);
   auto rec_fa = allocate(P.record_fa ? total_rec : 0), rec_fa2 = allocate(P.record_fa ? total_rec : 0);
@@ -263,7 +266,7 @@ bool run_tractography(ISignalData* signal_data,
   // Touch output pages in parallel. CUDA overwrites all downloaded rows;
   // only recorded rows are read, so zero-initializing every value is unnecessary.
   const std::array<std::pair<double*, size_t>, 9> outputs = {{{rec_pos.get(), total_rec*3},
-    {rec_norm.get(), total_rec}, {rec_state.get(), total_rec*n},
+    {rec_norm.get(), total_rec}, {rec_state.get(), P.record_state ? total_rec*n : 0},
     {rec_nmse.get(), P.record_nmse ? total_rec : 0},
     {rec_trace.get(), P.record_trace ? total_rec : 0}, {rec_trace2.get(), P.record_trace ? total_rec : 0},
     {rec_fa.get(), P.record_fa ? total_rec : 0}, {rec_fa2.get(), P.record_fa ? total_rec : 0},
@@ -386,7 +389,7 @@ bool run_tractography(ISignalData* signal_data,
                         sd_dir.data() + (size_t)begin * 3, ns,
                         reccount.data() + begin,
                         rec_pos.get() + rec_off * 3, rec_norm.get() + rec_off,
-                        rec_state.get() + rec_off * n,
+                        P.record_state ? rec_state.get() + rec_off * n : NULL,
                         P.record_cov ? rec_cov.get() + rec_off * n * n : NULL,
                         P.record_nmse ? rec_nmse.get() + rec_off : NULL,
                         P.record_trace ? rec_trace.get() + rec_off : NULL,
@@ -465,7 +468,8 @@ bool run_tractography(ISignalData* signal_data,
     {
     UKFFiber& fiber = fibers[f];
     const int r = reccount[f];
-    fiber.position.reserve(r); fiber.norm.reserve(r); fiber.state.reserve(r);
+    fiber.position.reserve(r); fiber.norm.reserve(r);
+    if (P.record_state) { fiber.state.reserve(r); }
     if (P.record_nmse) { fiber.normMSE.reserve(r); }
     if (P.record_trace) { fiber.trace.reserve(r); if (record_trace2) { fiber.trace2.reserve(r); } }
     if (P.record_fa) { fiber.fa.reserve(r); if (record_fa2) { fiber.fa2.reserve(r); } }
@@ -497,14 +501,17 @@ bool run_tractography(ISignalData* signal_data,
           fiber.fa2.push_back(rec_fa2[idx]);
           }
         }
-      fiber.state.emplace_back(n);
-      State& st = fiber.state.back();
-      for (int d = 0; d < n; ++d)
+      if (P.record_state)
         {
-        st[d] = rec_state[idx * n + d];
+        fiber.state.emplace_back(n);
+        State& st = fiber.state.back();
+        for (int d = 0; d < n; ++d)
+          {
+          st[d] = rec_state[idx * n + d];
+          }
+        if (s.record_Viso) { fiber.free_water.push_back(std::max(0.0, st[n-1])); }
+        if (s.record_free_water) { fiber.free_water.push_back(std::max(0.0, 1-st[n-1])); }
         }
-      if (s.record_Viso) { fiber.free_water.push_back(std::max(0.0, st[n-1])); }
-      if (s.record_free_water) { fiber.free_water.push_back(std::max(0.0, 1-st[n-1])); }
       if (s.record_cov)
         {
         fiber.covariance.emplace_back(n, n);

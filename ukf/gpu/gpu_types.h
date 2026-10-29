@@ -51,7 +51,7 @@ struct GPUDarParams
   double mean_signal_min, fa_min, min_radius;
   int max_length;     /* max number of steps per half fiber */
   int steps_per_record;
-  int record_nmse, record_trace, record_fa, record_cov;
+  int record_nmse, record_trace, record_fa, record_cov, record_state;
   double gm_thr, csf_thr;
   int use_gmcsf;      /* isGMCSFProvided */
   int mixed_requested; /* Guarded FP32 signal-exp range selection; sensitive math is FP64. */
@@ -98,7 +98,7 @@ struct GPUDevPointers
   /* record buffers, fixed stride max_rec per fiber */
   void*  rec_pos;  /* FP64 */    /* F*max_rec*3 */
   void*  rec_norm;  /* FP64 */   /* F*max_rec */
-  void*  rec_state;  /* FP64 */  /* F*max_rec*n */
+  void*  rec_state;  /* FP64 */  /* F*max_rec*n (only if record_state) */
   void*  rec_cov;  /* FP64 */    /* F*max_rec*n*n (only if record_cov) */
   void*  rec_nmse;  /* FP64 */   /* F*max_rec */
   void*  rec_trace;  /* FP64 */  /* F*max_rec */

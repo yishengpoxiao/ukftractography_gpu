@@ -24,6 +24,7 @@ void PostProcessFibers( const std::vector<UKFFiber>& raw_primary,
   const bool record_free_water = !raw_primary[0].free_water.empty();
   const bool record_normMSE = !raw_primary[0].normMSE.empty();
   const bool record_cov = !raw_primary[0].covariance.empty();
+  const bool record_state = !raw_primary[0].state.empty();
 
   const int num_primary_fibers = branches_only ? 0 : num_half_fibers / 2;
   const int num_branches = static_cast<int>(raw_branch.size() );
@@ -125,7 +126,10 @@ void PostProcessFibers( const std::vector<UKFFiber>& raw_primary,
       fibers[counter].normMSE.resize(num_points_on_primary_fiber[i]);
       }
     fibers[counter].norm.resize(num_points_on_primary_fiber[i]);
-    fibers[counter].state.resize(num_points_on_primary_fiber[i]);
+    if( record_state )
+      {
+      fibers[counter].state.resize(num_points_on_primary_fiber[i]);
+      }
     if( record_cov )
       {
       fibers[counter].covariance.resize(num_points_on_primary_fiber[i]);
@@ -161,7 +165,10 @@ void PostProcessFibers( const std::vector<UKFFiber>& raw_primary,
         fibers[counter].normMSE[k] = first_half.normMSE[j];
         }
       fibers[counter].norm[k] = first_half.norm[j];
-      fibers[counter].state[k] = first_half.state[j];
+      if( record_state )
+        {
+        fibers[counter].state[k] = first_half.state[j];
+        }
       if( record_cov )
         {
         fibers[counter].covariance[k] = first_half.covariance[j];
@@ -196,7 +203,10 @@ void PostProcessFibers( const std::vector<UKFFiber>& raw_primary,
         fibers[counter].normMSE[k] = second_half.normMSE[j];
         }
       fibers[counter].norm[k] = second_half.norm[j];
-      fibers[counter].state[k] = second_half.state[j];
+      if( record_state )
+        {
+        fibers[counter].state[k] = second_half.state[j];
+        }
       if( record_cov )
         {
         fibers[counter].covariance[k] = second_half.covariance[j];
@@ -269,7 +279,10 @@ void PostProcessFibers( const std::vector<UKFFiber>& raw_primary,
       fibers[counter].normMSE.resize(num_points_on_branch[i]);
       }
     fibers[counter].norm.resize(num_points_on_branch[i]);
-    fibers[counter].state.resize(num_points_on_branch[i]);
+    if( record_state )
+      {
+      fibers[counter].state.resize(num_points_on_branch[i]);
+      }
     if( record_cov )
       {
       fibers[counter].covariance.resize(num_points_on_branch[i]);
@@ -305,7 +318,10 @@ void PostProcessFibers( const std::vector<UKFFiber>& raw_primary,
         fibers[counter].normMSE[k] = first_half.normMSE[j];
         }
       fibers[counter].norm[k] = first_half.norm[j];
-      fibers[counter].state[k] = first_half.state[j];
+      if( record_state )
+        {
+        fibers[counter].state[k] = first_half.state[j];
+        }
       if( record_cov )
         {
         fibers[counter].covariance[k] = first_half.covariance[j];
@@ -341,7 +357,10 @@ void PostProcessFibers( const std::vector<UKFFiber>& raw_primary,
         fibers[counter].normMSE[k] = second_half.normMSE[j];
         }
       fibers[counter].norm[k] = second_half.norm[j];
-      fibers[counter].state[k] = second_half.state[j];
+      if( record_state )
+        {
+        fibers[counter].state[k] = second_half.state[j];
+        }
       if( record_cov )
         {
         fibers[counter].covariance[k] = second_half.covariance[j];
@@ -376,7 +395,10 @@ void PostProcessFibers( const std::vector<UKFFiber>& raw_primary,
         fibers[counter].normMSE[k] = branch.normMSE[j];
         }
       fibers[counter].norm[k] = branch.norm[j];
-      fibers[counter].state[k] = branch.state[j];
+      if( record_state )
+        {
+        fibers[counter].state[k] = branch.state[j];
+        }
       if( record_cov )
         {
         fibers[counter].covariance[k] = branch.covariance[j];

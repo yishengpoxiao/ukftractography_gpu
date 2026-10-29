@@ -504,15 +504,19 @@ void Tractography::Init(std::vector<SeedPointInfo>& seed_infos)
           break;
           }
 
-        // If we do full brain tractography we only want seed voxels where the
-        // GA is bigger than 0.18.
-        ukfMatrixType signal_tmp(signal_dim * 2, 1);
-        signal_tmp.col(0) = signal;
-        if( _full_brain && s2adc(signal_tmp) < _seeding_threshold )
+        // Full-brain seeds must meet the mean-signal threshold. The mean is
+        // independent of k, so evaluate it
+        // after the first value passes the same validity checks as before.
+        if( _full_brain && k == 0 )
           {
-          keep = false;
-          ++num_mean_signal_too_low;
-          break;
+          ukfMatrixType signal_tmp(signal_dim * 2, 1);
+          signal_tmp.col(0) = signal;
+          if( s2adc(signal_tmp) < _seeding_threshold )
+            {
+            keep = false;
+            ++num_mean_signal_too_low;
+            break;
+            }
           }
         }
 
