@@ -49,7 +49,7 @@ HCP Young Adult b≈3000 s/mm² data: **1.25 mm isotropic**, **145 × 174 × 145
 | GPU, FP64 | 269.1 s | 332.0 s | 6.99× | 6.07× |
 | GPU, guarded mixed | 266.7 s | 329.5 s | 7.06× | 6.12× |
 
-GPU runs were repeated on one idle RTX 4090; the CPU row retains the original reference measurement. On the same GPU, this update reduced mixed-mode tracking from **282.1 to 266.7 s** and total time from **396.0 to 329.5 s**. These are single sequential runs on a shared server, including input loading and VTK writing.
+GPU runs were repeated on one idle RTX 4090; the CPU row retains the original reference measurement.These are single sequential runs on a shared server, including input loading and VTK writing.
 
 Both updated GPU modes matched the original CPU fiber order and per-fiber point counts, with **0 mm maximum stored position error** (limit: 0.001 mm); recorded arrays also matched. Detailed logs and outputs remain outside this repository.
 
